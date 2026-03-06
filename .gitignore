@@ -1,0 +1,19 @@
+# Dependency directories
+node_modules/
+
+# Build output
+dist/
+
+# Configuration and secrets
+.wechat.yml
+.env*
+
+# Caches and temporary files
+.wechat-cache.json
+debug.html
+*.log
+
+# IDE files
+.vscode/
+.idea/
+.DS_Store
