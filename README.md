@@ -1,85 +1,95 @@
-# WeChat Post Publisher
+# WeChat Post Publisher (CLI)
 
-这是一个基于 Node.js (TypeScript) 开发的命令行工具 (CLI)，旨在帮助博主将本地的 Jekyll Markdown 文章一键同步至微信公众号的**草稿箱**。
+这是一个基于 Node.js (TypeScript) 开发的高保真、自动化命令行工具，专门用于将 Jekyll 或其他标准 Markdown 博客文章一键同步至微信公众号的**草稿箱**。
 
-它能自动处理最繁琐的图片上传、排版兼容和链接转换工作，让你只需关注内容创作。
+它深度解决了微信公众号后台排版中**“本地图片无法直接使用”**、**“外部 CSS 样式被过滤”**以及**“Mermaid 图表不兼容”**等博主最痛苦的问题。
 
 ## 🌟 核心特性
 
-- **元数据智能提取**：自动解析 Jekyll Front-matter，识别标题、作者、封面图和摘要。
-- **自动化媒体管道**：
-  - 自动提取正文图片并上传至微信 CDN。
-  - 支持封面图（永久素材）自动上传。
-  - **断点续传缓存**：记录已上传资源，避免重复调用 API 节省配额。
-- **完美排版兼容**：
-  - **CSS 内联化**：使用 `Juice` 将样式直接注入标签，解决微信过滤外部样式的问题。
-  - **链接修复**：自动将博文内的相对链接转换为指向你站点的绝对链接。
-  - **内容清洗**：自动剔除不兼容的 `id` 和 `class` 属性，显著提升同步成功率。
-- **防重复检测**：基于文章标题检索草稿箱，提供交互式的覆盖或新建确认。
+### 1. 🚀 自动化发布流
+- **一键同步**：解析本地 Markdown 及其 Front-matter，自动创建或更新微信草稿。
+- **批量同步 (`latest`)**：支持按日期倒序自动同步最近的 N 篇文章，极大提升效率。
+- **智能防重复**：基于文章标题智能检索草稿箱，支持交互式确认或 `--force` 强制覆盖更新。
+
+### 2. 🖼️ 强大媒体处理管道
+- **自动化图片同步**：自动提取正文图片并上传至微信 CDN，并在原文中完成路径替换。
+- **封面图管理**：自动上传 Front-matter 指定的封面图作为微信永久素材。
+- **🧜 Mermaid 引擎**：自动识别 Mermaid 代码块并转换为静态图片，确信流程图、时序图在手机端完美显示。
+- **智能缓存系统**：利用 `.wechat-cache.json` 记录已上传资源，避免重复调用 API，节省配额并加速同步。
+
+### 3. 🎨 高保真排版兼容
+- **结构保真渲染**：采用 GitHub 风格（GFM）样式表，确保本地预览与手机端效果高度一致。
+- **CSS 内联化 (Inlining)**：使用 `Juice` 将样式直接注入标签，绕过微信对外部样式的严格限制。
+- **列表兼容补丁**：针对微信“吞掉”列表符号的顽疾，强制注入补丁样式。
+- **绝对链接转换**：自动将站内相对链接转换为绝对链接（基于 `siteUrl` 配置）。
+- **健壮性净化**：自动移除 `id`、`class` 属性，并截断超限的标题与摘要，确保符合微信 API 规范。
 
 ## 🛠 工作流程
 
-1.  **解析 (Parsing)**：读取 Markdown，提取元数据并自动截断超过 64 字符的摘要。
-2.  **资源处理 (Assets)**：定位本地 `assets/` 图片，调用 `uploadimg` 接口同步到微信 CDN。
-3.  **转换 (Conversion)**：Markdown 转 HTML -> CSS 内联 (Inlining) -> 相对路径补全。
-4.  **检测 (Duplicate Check)**：对比微信草稿箱标题，确认是否存在冲突。
-5.  **同步 (Sync)**：打包 JSON 数据，调用 `draft/add` API 创建微信草稿。
+1.  **解析 (Parsing)**：读取 Markdown 提取元数据，自动处理超长标题和摘要。
+2.  **渲染 (Rendering)**：
+    - 将 **Mermaid** 代码块通过远程服务转为图片并缓存。
+    - 定位本地图片并同步到微信 CDN。
+3.  **转译 (Conversion)**：Markdown 转 HTML，执行 CSS 内联及链接补全。
+4.  **校验 (Validating)**：查询微信后台草稿列表，处理命名冲突。
+5.  **发布 (Publishing)**：通过微信 API (`draft/add` 或 `draft/update`) 创建/覆盖草稿。
 
 ## 🚀 快速开始
 
-### 1. 安装
+### 1. 全局安装
 ```bash
+# 进入工具目录
 cd wechat-publisher
 npm install
 npm run build
 npm link --force
 ```
 
-### 2. 配置
-在 `wechat-publisher/` 目录下创建 `.wechat.yml`（该文件已被 git 忽略）：
+### 2. 项目初始化
+在您的**博客项目根目录**运行：
+```bash
+wechat-pub init
+```
+
+### 3. 配置参数
+编辑生成的 `.wechat.yml`：
 ```yaml
 appId: "您的微信AppID"
 appSecret: "您的微信AppSecret"
-author: "您的名称"
-siteUrl: "https://rbbtsn0w.me" # 用于修复相对链接
-postsDir: "_posts"
-assetsDir: "assets"
-style: "default"
+author: "博主名称"
+siteUrl: "https://your-blog.me" # 必填：用于修复博文内相对链接
+postsDir: "_posts"             # 博客文章目录
+assetsDir: "assets"            # 静态资源根目录
 ```
-*提示：请务必在微信公众号后台将运行本工具的机器 IP 加入“IP白名单”。*
+*提示：请务必将运行机器的 IP 加入微信公众平台后台的“IP白名单”。*
 
-### 3. 常用命令
+## 📖 常用命令
 
-建议在博客根目录下执行：
+> **注意**：请始终在您的博客项目根目录下运行以下指令。
 
-- **同步文章**：
+- **同步指定文章**：
   ```bash
-  wechat-pub sync _posts/2026-03-05-your-post.md
+  wechat-pub sync _posts/2026-03-05-my-post.md
   ```
-- **本地预览 (Dry Run)**：
+- **同步最近 5 篇文章（强制覆盖重复）**：
   ```bash
-  wechat-pub sync _posts/2026-03-05-your-post.md --dry-run
+  wechat-pub latest 5 --force
   ```
-  *预览结果将保存为 `wechat-publisher/debug.html`。*
-- **强制同步**：
+- **本地预览 (不上传)**：
   ```bash
-  wechat-pub sync _posts/2026-03-05-your-post.md --force
+  wechat-pub sync _posts/my-post.md --dry-run
   ```
-- **查看最近草稿**：
+  *转换后的预览文件将生成在当前目录下的 `wechat-debug-[title].html`。*
+- **列表查询**：
   ```bash
   wechat-pub list 10
   ```
 
 ## 📂 本地存储
 
-- `.wechat.yml`: 存储敏感 API 凭证。
-- `.wechat-cache.json`: 存储 `本地路径 -> 微信URL` 的映射。若图片显示异常或需要强制刷新，可删除此文件。
+- `.wechat.yml`: 敏感凭证。
+- `.wechat-cache.json`: 图片与 URL 映射缓存。
+- `.mermaid-cache/`: 存储生成的 Mermaid 图片。
 
-## ❓ 常见问题
-
-- **错误 45166 (Invalid Content)**：通常是因为包含 iframe 或不支持的 HTML 标签。
-- **错误 45004 (Digest Limit)**：摘要超过微信限制，工具目前已支持自动截断。
-- **图片无法显示**：确保图片位于 `assets/` 路径下并在 Markdown 中引用正确。
-
-## 📜 详细文档
-更多细节请参阅 [规格说明书](../specs/002-wechat-post-publisher/spec.md) 或 [快速入门指南](../specs/002-wechat-post-publisher/quickstart.md)。
+---
+*Developed by RbBtSn0w*

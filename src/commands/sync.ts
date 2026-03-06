@@ -40,7 +40,11 @@ export async function syncCommand(postPath: string, options: any) {
       console.log(`Title: ${post.title}`);
       console.log(`Author: ${post.author || config.author}`);
       console.log(`Digest: ${post.digest}`);
-      const debugPath = path.resolve(process.cwd(), 'wechat-publisher', 'debug.html');
+      
+      // Create a filename safe title
+      const safeTitle = post.title.replace(/[^\w\s\u4e00-\u9fa5]/gi, '').substring(0, 20).trim().replace(/\s+/g, '_');
+      const debugPath = path.resolve(process.cwd(), `wechat-debug-${safeTitle}.html`);
+      
       fs.writeFileSync(debugPath, post.contentHtml, 'utf8');
       console.log(`HTML Output saved to ${debugPath} for inspection.`);
       return;
@@ -61,28 +65,33 @@ export async function syncCommand(postPath: string, options: any) {
       only_fans_can_comment: 0,
     };
 
-    if (!options.force) {
-      console.log('Checking for duplicate drafts...');
-      const drafts = await apiClient.getDrafts();
-      let duplicateMediaId = null;
-      for (const draft of drafts) {
-        if (draft.content?.news_item?.[0]?.title === article.title) {
-          duplicateMediaId = draft.media_id;
-          break;
-        }
+    console.log('Checking for duplicate drafts...');
+    const drafts = await apiClient.getDrafts();
+    let duplicateMediaId = null;
+    for (const draft of drafts) {
+      if (draft.content?.news_item?.[0]?.title === article.title) {
+        duplicateMediaId = draft.media_id;
+        break;
+      }
+    }
+
+    if (duplicateMediaId) {
+      let overwrite = options.force; // If force is true, we skip the prompt
+      
+      if (!overwrite) {
+        overwrite = await promptUser(`Draft with title "${article.title}" already exists. Overwrite? (y/N) `);
+      } else {
+        console.log(`Duplicate found: "${article.title}". --force is enabled, overwriting...`);
       }
 
-      if (duplicateMediaId) {
-        const overwrite = await promptUser(`Draft with title "${article.title}" already exists. Overwrite? (y/N) `);
-        if (overwrite) {
-          console.log(`Updating existing draft (Media ID: ${duplicateMediaId})...`);
-          await apiClient.updateDraft(duplicateMediaId, 0, article);
-          console.log(`\n✅ Success! Draft updated.`);
-          return;
-        } else {
-          console.log('Operation cancelled by user.');
-          return;
-        }
+      if (overwrite) {
+        console.log(`Updating existing draft (Media ID: ${duplicateMediaId})...`);
+        await apiClient.updateDraft(duplicateMediaId, 0, article);
+        console.log(`\n✅ Success! Draft updated.`);
+        return;
+      } else {
+        console.log('Operation cancelled by user.');
+        return;
       }
     }
 

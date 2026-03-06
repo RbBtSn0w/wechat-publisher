@@ -1,24 +1,24 @@
 import juice from 'juice';
+import { markdownTheme } from './themes/markdown';
 
-export function inlineCss(html: string, extraCss: string = ''): string {
-  const defaultWechatCss = `
-    body { font-size: 16px; color: #333; line-height: 1.6; }
-    h1, h2, h3, h4, h5, h6 { color: #222; font-weight: bold; margin-bottom: 16px; }
-    p { margin-bottom: 16px; }
-    img { max-width: 100%; height: auto; display: block; margin: 10px auto; }
-    pre { background-color: #f6f8fa; padding: 16px; overflow: auto; border-radius: 6px; }
-    code { font-family: monospace; font-size: 14px; }
-    blockquote { border-left: 4px solid #dfe2e5; padding-left: 16px; color: #6a737d; }
-    a { color: #0366d6; text-decoration: none; }
-  `;
+export function inlineCss(html: string): string {
+  // Wrap content in a container to match our CSS selector
+  const wrappedHtml = `<div class="markdown-body">${html}</div>`;
 
-  const inlined = juice.inlineContent(html, defaultWechatCss + extraCss, {
+  // Inline the CSS
+  const inlined = juice.inlineContent(wrappedHtml, markdownTheme, {
     inlinePseudoElements: true,
     preserveImportant: true,
   });
 
-  // Strip id and class attributes which often cause "invalid content" in WeChat API
+  // Clean up for WeChat: Remove IDs and classes but KEEP the style attribute
   return inlined
-    .replace(/\s+id=".*?"/g, '')
-    .replace(/\s+class=".*?"/g, '');
+    .replace(/\s+id="[^"]*"/g, '')
+    .replace(/\s+class="[^"]*"/g, '')
+    .replace(/<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g, (match, href, text) => {
+      // WeChat doesn't allow external links anyway.
+      // We convert them to a span that looks like a link (blue + underline)
+      // but only keep the inner text to avoid rendering HTML attributes as text.
+      return `<span style="color: #576b95; text-decoration: underline;">${text}</span>`;
+    });
 }

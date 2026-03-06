@@ -22,10 +22,14 @@ export function parseMarkdown(filePath: string): Partial<BlogPost> {
     }
   }
 
-  const title = metadata.title || 'Untitled';
+  let title = metadata.title || 'Untitled';
   const author = metadata.author || '';
   let digest = metadata.description || contentMarkdown.substring(0, 64).replace(/\n/g, ' ') + '...';
   
+  if (title.length > 64) {
+    title = title.substring(0, 61) + '...';
+  }
+
   if (digest.length > 64) {
     digest = digest.substring(0, 61) + '...';
   }
@@ -78,4 +82,22 @@ export function resolveRelativeLinks(html: string, baseUrl: string): string {
   return html.replace(/(<a\s+[^>]*href=")(\/[^"]*)(")/g, (match, p1, p2, p3) => {
     return `${p1}${baseUrl}${p2}${p3}`;
   });
+}
+
+export function extractMermaidBlocks(markdown: string): string[] {
+  const regex = /```mermaid\n([\s\S]*?)\n```/g;
+  const blocks: string[] = [];
+  let match;
+  while ((match = regex.exec(markdown)) !== null) {
+    blocks.push(match[1].trim());
+  }
+  return blocks;
+}
+
+export function replaceMermaidBlocks(markdown: string, replacements: Record<string, string>): string {
+  let result = markdown;
+  for (const [code, imgTag] of Object.entries(replacements)) {
+    result = result.split(`\`\`\`mermaid\n${code}\n\`\`\``).join(imgTag);
+  }
+  return result;
 }

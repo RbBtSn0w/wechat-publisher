@@ -9,8 +9,11 @@ dotenv.config();
 export function loadConfig(configPath = '.wechat.yml'): AppConfig {
   let fullPath = path.resolve(process.cwd(), configPath);
   
-  // Fallback to sub-project directory if not found in CWD and using default path
+  // If not found in CWD and we are using the default name, 
+  // we strictly use CWD for the independent tool behavior.
+  // The fallback to 'wechat-publisher' directory was only for the transition phase.
   if (!fs.existsSync(fullPath) && configPath === '.wechat.yml') {
+    // Keep the fallback for now to avoid breaking the user's current setup during migration
     const subProjectPath = path.resolve(process.cwd(), 'wechat-publisher', '.wechat.yml');
     if (fs.existsSync(subProjectPath)) {
       fullPath = subProjectPath;
@@ -39,7 +42,7 @@ export function loadConfig(configPath = '.wechat.yml'): AppConfig {
     baseUrl: ymlConfig.baseUrl || 'https://api.weixin.qq.com',
     siteUrl: ymlConfig.siteUrl || '',
     postsDir: ymlConfig.postsDir || '_posts',
-    assetsDir: ymlConfig.assetsDir || 'assets/img/post',
+    assetsDir: ymlConfig.assetsDir || 'assets',
     author: ymlConfig.author || '',
     style: ymlConfig.style || 'default',
   };
