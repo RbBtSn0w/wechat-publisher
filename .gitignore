@@ -9,9 +9,7 @@ dist/
 .env*
 
 # Caches and temporary files
-.wechat-cache.json
-.mermaid-cache/
-wechat-debug*.html
+.temp/
 *.log
 
 # IDE files

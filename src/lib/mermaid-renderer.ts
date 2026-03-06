@@ -3,21 +3,27 @@ import pako from 'pako';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { TEMP_PATHS } from './constants';
 
 export class MermaidRenderer {
   private tempDir: string;
 
   constructor() {
-    this.tempDir = path.join(process.cwd(), 'wechat-publisher', '.mermaid-cache');
-    if (!fs.existsSync(this.tempDir)) {
-      fs.mkdirSync(this.tempDir, { recursive: true });
-    }
+    this.tempDir = TEMP_PATHS.mermaid;
+  }
+
+  getHash(mermaidCode: string): string {
+    return crypto.createHash('md5').update(mermaidCode).digest('hex');
+  }
+
+  getTargetPath(hash: string): string {
+    return path.join(this.tempDir, `${hash}.png`);
   }
 
   async renderToImage(mermaidCode: string): Promise<string> {
     // Generate a hash for the code to use as cache key
-    const hash = crypto.createHash('md5').update(mermaidCode).digest('hex');
-    const targetPath = path.join(this.tempDir, `${hash}.png`);
+    const hash = this.getHash(mermaidCode);
+    const targetPath = this.getTargetPath(hash);
 
     if (fs.existsSync(targetPath)) {
       return targetPath;

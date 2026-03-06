@@ -2,6 +2,7 @@ import { loadConfig } from '../lib/config';
 import { processPost } from '../lib/processor';
 import { WeChatAPIClient } from '../lib/api-client';
 import { Uploader } from '../lib/uploader';
+import { TEMP_PATHS } from '../lib/constants';
 import path from 'path';
 import fs from 'fs';
 import readline from 'readline';
@@ -43,7 +44,7 @@ export async function syncCommand(postPath: string, options: any) {
       
       // Create a filename safe title
       const safeTitle = post.title.replace(/[^\w\s\u4e00-\u9fa5]/gi, '').substring(0, 20).trim().replace(/\s+/g, '_');
-      const debugPath = path.resolve(process.cwd(), `wechat-debug-${safeTitle}.html`);
+      const debugPath = path.join(TEMP_PATHS.debug, `wechat-debug-${safeTitle}.html`);
       
       fs.writeFileSync(debugPath, post.contentHtml, 'utf8');
       console.log(`HTML Output saved to ${debugPath} for inspection.`);

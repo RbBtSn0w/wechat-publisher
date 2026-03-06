@@ -1,13 +1,15 @@
-import { parseMarkdown, convertMarkdownToHtml, extractImagePaths, replaceImagePaths, resolveRelativeLinks, extractMermaidBlocks, replaceMermaidBlocks } from './parser';
+import { parseMarkdown, convertMarkdownToHtml, extractImagePaths, replaceImagePaths, extractMermaidBlocks, replaceMermaidBlocks } from './parser';
 import { inlineCss } from './converter';
 import { BlogPost, AppConfig } from '../types';
 import { Uploader } from './uploader';
 import { ResourceCache } from './cache';
 import { MermaidRenderer } from './mermaid-renderer';
+import { getRepoRoot } from './constants';
 import path from 'path';
 import fs from 'fs';
 
 export async function processPost(filePath: string, config: AppConfig, uploader?: Uploader): Promise<BlogPost> {
+  const repoRoot = getRepoRoot();
   const postInfo = parseMarkdown(filePath);
   
   if (!postInfo.contentMarkdown) {
@@ -24,28 +26,35 @@ export async function processPost(filePath: string, config: AppConfig, uploader?
     const renderer = new MermaidRenderer();
     const mermaidReplacements: Record<string, string> = {};
 
-    for (const code of mermaidBlocks) {
+    const mermaidPromises = mermaidBlocks.map(async (code) => {
       try {
-        const localImgPath = await renderer.renderToImage(code);
-        let wechatUrl = cache.get(localImgPath);
-        
-        if (!wechatUrl && uploader) {
-          console.log(`Uploading Mermaid diagram to WeChat...`);
-          wechatUrl = await uploader.uploadImage(localImgPath);
-          cache.set(localImgPath, wechatUrl);
+        const hash = renderer.getHash(code);
+        const cacheKey = `mermaid:${hash}`;
+        let wechatUrl = cache.get(cacheKey);
+
+        if (!wechatUrl) {
+          const localImgPath = await renderer.renderToImage(code);
+          wechatUrl = cache.get(localImgPath);
+          
+          if (!wechatUrl && uploader) {
+            console.log(`Uploading Mermaid diagram to WeChat...`);
+            wechatUrl = await uploader.uploadImage(localImgPath);
+            cache.set(localImgPath, wechatUrl);
+            cache.set(cacheKey, wechatUrl);
+          }
         }
 
         if (wechatUrl) {
-          // Replace code block with an image tag
           mermaidReplacements[code] = `![Mermaid Diagram](${wechatUrl})`;
         } else {
-          // If dry run and not in cache, we use a placeholder or keep as is
           mermaidReplacements[code] = `> 📊 [Mermaid Diagram - Pending Sync]`;
         }
       } catch (e: any) {
         console.error(`Failed to render Mermaid block: ${e.message}`);
       }
-    }
+    });
+
+    await Promise.all(mermaidPromises);
     finalMarkdown = replaceMermaidBlocks(finalMarkdown, mermaidReplacements);
   }
 
@@ -59,9 +68,9 @@ export async function processPost(filePath: string, config: AppConfig, uploader?
       
       let localImgPath = imgPath;
       if (imgPath.startsWith('/')) {
-        localImgPath = path.join(process.cwd(), imgPath);
+        localImgPath = path.join(repoRoot, imgPath);
       } else {
-        localImgPath = path.join(process.cwd(), config.assetsDir || '', imgPath);
+        localImgPath = path.join(repoRoot, config.assetsDir || '', imgPath);
       }
 
       if (!fs.existsSync(localImgPath)) return null;
@@ -89,9 +98,9 @@ export async function processPost(filePath: string, config: AppConfig, uploader?
     if (postInfo.localThumbPath) {
       let localThumbPath = postInfo.localThumbPath;
       if (!localThumbPath.startsWith('/')) {
-        localThumbPath = path.join(process.cwd(), config.assetsDir || '', localThumbPath);
+        localThumbPath = path.join(repoRoot, config.assetsDir || '', localThumbPath);
       } else {
-        localThumbPath = path.join(process.cwd(), localThumbPath);
+        localThumbPath = path.join(repoRoot, localThumbPath);
       }
 
       if (fs.existsSync(localThumbPath)) {
@@ -109,8 +118,8 @@ export async function processPost(filePath: string, config: AppConfig, uploader?
   // 3. Convert to HTML
   const rawHtml = convertMarkdownToHtml(finalMarkdown);
   
-  // 4. Inline CSS
-  let contentHtml = inlineCss(rawHtml);
+  // 4. Inline CSS (Includes link resolution)
+  let contentHtml = inlineCss(rawHtml, config.siteUrl, config.style);
 
   // 5. Extra safety for any remaining relative image paths in HTML
   if (uploader || !uploader) {
@@ -118,9 +127,9 @@ export async function processPost(filePath: string, config: AppConfig, uploader?
     for (const imgPath of allImagePaths) {
       let localImgPath = imgPath;
       if (imgPath.startsWith('/')) {
-        localImgPath = path.join(process.cwd(), imgPath);
+        localImgPath = path.join(repoRoot, imgPath);
       } else {
-        localImgPath = path.join(process.cwd(), config.assetsDir || '', imgPath);
+        localImgPath = path.join(repoRoot, config.assetsDir || '', imgPath);
       }
       
       const wechatUrl = cache.get(localImgPath);
@@ -130,10 +139,6 @@ export async function processPost(filePath: string, config: AppConfig, uploader?
         contentHtml = contentHtml.replace(regex, `src="${wechatUrl}"`);
       }
     }
-  }
-
-  if (config.siteUrl) {
-    contentHtml = resolveRelativeLinks(contentHtml, config.siteUrl);
   }
 
   return {

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { MediaMap } from '../types';
+import { TEMP_PATHS } from './constants';
 
 const CACHE_FILE = '.wechat-cache.json';
 
@@ -9,16 +10,20 @@ export class ResourceCache {
   private cachePath: string;
 
   constructor() {
-    const defaultPath = path.resolve(process.cwd(), CACHE_FILE);
-    const subProjectPath = path.resolve(process.cwd(), 'wechat-publisher', CACHE_FILE);
+    this.cachePath = TEMP_PATHS.cacheFile;
     
-    if (fs.existsSync(defaultPath)) {
-      this.cachePath = defaultPath;
-    } else if (fs.existsSync(subProjectPath)) {
-      this.cachePath = subProjectPath;
-    } else {
-      // Default to sub-project if neither exists
-      this.cachePath = subProjectPath;
+    // Check for legacy cache file in old locations for migration
+    const legacyPaths = [
+      path.resolve(process.cwd(), CACHE_FILE),
+      path.resolve(process.cwd(), 'wechat-publisher', CACHE_FILE)
+    ];
+
+    for (const p of legacyPaths) {
+      if (fs.existsSync(p) && !fs.existsSync(this.cachePath)) {
+        console.log(`Migrating cache from ${p} to ${this.cachePath}`);
+        fs.renameSync(p, this.cachePath);
+        break;
+      }
     }
     
     this.load();
