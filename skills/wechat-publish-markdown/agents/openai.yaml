@@ -1,0 +1,4 @@
+interface:
+  display_name: "WeChat Markdown Publisher"
+  short_description: "Sync Markdown posts to WeChat draft box"
+  default_prompt: "Use this skill to publish Markdown posts to WeChat draft box with sync/latest/list commands."

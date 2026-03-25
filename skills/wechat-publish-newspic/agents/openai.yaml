@@ -1,0 +1,4 @@
+interface:
+  display_name: "WeChat Newspic Publisher"
+  short_description: "Publish newspic draft payload directories"
+  default_prompt: "Use this skill to publish article_type=newspic payload directories via wechat-pub publish-dir."
