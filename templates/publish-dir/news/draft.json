@@ -1,0 +1,14 @@
+{
+  "articles": [
+    {
+      "article_type": "news",
+      "title": "示例图文消息",
+      "author": "RbBtSn0w",
+      "digest": "这是一个图文消息示例",
+      "content": "<h1>正文标题</h1><p>正文图片：<img src=\"local://body-1.png\" /></p>",
+      "thumb_media_id": "local://cover.jpg",
+      "need_open_comment": 0,
+      "only_fans_can_comment": 0
+    }
+  ]
+}

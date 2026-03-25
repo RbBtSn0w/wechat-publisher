@@ -63,6 +63,16 @@ assetsDir: "assets"            # 静态资源根目录
 ```
 *提示：请务必将运行机器的 IP 加入微信公众平台后台的“IP白名单”。*
 
+### 4. 文章 Front-matter（可选）
+支持通过 Front-matter 指定微信公众号草稿文章类型：
+
+```yaml
+---
+title: "示例文章"
+article_type: "news"    # 可选: news | newspic（默认 news）
+---
+```
+
 ## 📖 常用命令
 
 > **注意**：请始终在您的博客项目根目录下运行以下指令。
@@ -84,6 +94,107 @@ assetsDir: "assets"            # 静态资源根目录
   ```bash
   wechat-pub list 10
   ```
+- **目录 DSL 发布（1个 JSON + 图片目录）**：
+  ```bash
+  wechat-pub publish-dir ./wechat-drafts/my-draft
+  wechat-pub publish-dir ./wechat-drafts/my-draft --dry-run
+  ```
+
+### 5. 目录 DSL 输入（`publish-dir`）
+
+- 目录内要求：**恰好 1 个 JSON 文件**，可包含多张图片。
+- JSON 结构与微信 `draft/add` 官方请求体对齐（重点是 `articles`）。
+- 本地图片占位使用 `local://文件名`，发布时会自动上传并回填：
+  - `news`: `thumb_media_id` 支持 `local://...`（回填永久 `media_id`）
+  - `newspic`: `image_info.image_list[].image_media_id` 支持 `local://...`（回填永久 `media_id`）
+  - `content` 中出现的 `local://...` 会上传为正文图片 URL 并替换
+
+### 6. `publish-dir` 完整教程
+
+#### 6.1 目录结构
+
+```text
+wechat-drafts/
+  my-news/
+    draft.json
+    cover.jpg
+    body-1.png
+  my-newspic/
+    draft.json
+    pic-1.jpg
+    pic-2.jpg
+```
+
+> 一个目录只放一个 JSON（比如 `draft.json`），其余是图片文件。
+
+#### 6.2 `news` 模板（图文消息）
+
+参考模板文件：`templates/publish-dir/news/draft.json`
+
+```json
+{
+  "articles": [
+    {
+      "article_type": "news",
+      "title": "示例图文消息",
+      "author": "RbBtSn0w",
+      "digest": "这是一个图文消息示例",
+      "content": "<h1>正文标题</h1><p>正文图片：<img src=\"local://body-1.png\" /></p>",
+      "thumb_media_id": "local://cover.jpg",
+      "need_open_comment": 0,
+      "only_fans_can_comment": 0
+    }
+  ]
+}
+```
+
+#### 6.3 `newspic` 模板（图片消息）
+
+参考模板文件：`templates/publish-dir/newspic/draft.json`
+
+```json
+{
+  "articles": [
+    {
+      "article_type": "newspic",
+      "title": "示例图片消息",
+      "author": "RbBtSn0w",
+      "content": "这是一条图片消息正文",
+      "image_info": {
+        "image_list": [
+          { "image_media_id": "local://pic-1.jpg" },
+          { "image_media_id": "local://pic-2.jpg" }
+        ]
+      },
+      "need_open_comment": 0,
+      "only_fans_can_comment": 0
+    }
+  ]
+}
+```
+
+#### 6.4 执行命令
+
+```bash
+# 仅校验并生成回填结果（不会调用微信接口）
+wechat-pub publish-dir ./wechat-drafts/my-news --dry-run
+
+# 正式发布到草稿箱
+wechat-pub publish-dir ./wechat-drafts/my-news
+```
+
+#### 6.5 字段回填规则
+
+- `thumb_media_id: "local://cover.jpg"` -> 自动上传永久素材，替换为 `media_id`。
+- `image_media_id: "local://pic-1.jpg"` -> 自动上传永久素材，替换为 `media_id`。
+- `content` 中 `local://xxx` -> 自动上传正文图片（`uploadimg`），替换为图片 URL。
+
+#### 6.6 常见报错排查
+
+- `Expected exactly one JSON file ...`：目录里 JSON 不是 1 个。
+- `Referenced local file not found ...`：`local://` 对应文件不存在。
+- `articles[x].thumb_media_id must be a non-empty string`：`news` 缺少封面字段。
+- `image_list exceeds 20 images`：`newspic` 图片超过微信限制（最多 20）。
 
 ## 📂 本地存储
 

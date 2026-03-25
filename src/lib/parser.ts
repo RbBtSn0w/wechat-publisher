@@ -1,7 +1,9 @@
 import { marked } from 'marked';
 import yaml from 'yaml';
 import fs from 'fs';
-import { BlogPost } from '../types';
+import { BlogPost, WeChatArticleType } from '../types';
+
+const SUPPORTED_ARTICLE_TYPES: ReadonlySet<WeChatArticleType> = new Set(['news', 'newspic']);
 
 export function parseMarkdown(filePath: string): Partial<BlogPost> {
   const fileContent = fs.readFileSync(filePath, 'utf8');
@@ -35,6 +37,12 @@ export function parseMarkdown(filePath: string): Partial<BlogPost> {
   }
 
   let localThumbPath = metadata.cover || metadata.image?.path || '';
+  const rawArticleType = metadata.article_type ?? metadata.articleType ?? 'news';
+  const articleType = String(rawArticleType).trim().toLowerCase() as WeChatArticleType;
+
+  if (!SUPPORTED_ARTICLE_TYPES.has(articleType)) {
+    throw new Error(`Invalid article_type: "${rawArticleType}". Supported values: news, newspic.`);
+  }
 
   return {
     title,
@@ -42,6 +50,7 @@ export function parseMarkdown(filePath: string): Partial<BlogPost> {
     digest,
     contentMarkdown,
     localThumbPath,
+    articleType,
     originalPath: filePath,
   };
 }

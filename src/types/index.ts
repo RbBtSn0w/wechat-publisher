@@ -1,3 +1,5 @@
+export type WeChatArticleType = 'news' | 'newspic';
+
 export interface AppConfig {
   appId: string;
   appSecret: string;
@@ -17,6 +19,7 @@ export interface BlogPost {
   contentHtml: string;
   localThumbPath: string;
   wechatThumbMediaId: string;
+  articleType: WeChatArticleType;
   originalPath: string;
 }
 

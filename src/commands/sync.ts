@@ -62,6 +62,7 @@ export async function syncCommand(postPath: string, options: any) {
       digest: post.digest,
       content: post.contentHtml,
       thumb_media_id: thumbMediaId,
+      article_type: post.articleType || 'news',
       need_open_comment: 0,
       only_fans_can_comment: 0,
     };

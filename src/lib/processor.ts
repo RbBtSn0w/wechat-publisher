@@ -149,6 +149,7 @@ export async function processPost(filePath: string, config: AppConfig, uploader?
     contentHtml,
     localThumbPath: postInfo.localThumbPath || '',
     wechatThumbMediaId: postInfo.wechatThumbMediaId || '',
+    articleType: postInfo.articleType || 'news',
     originalPath: filePath,
   };
 }

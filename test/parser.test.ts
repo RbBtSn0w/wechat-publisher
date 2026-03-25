@@ -5,13 +5,29 @@ import { parseMarkdown, extractImagePaths, replaceImagePaths } from '../src/lib/
 
 test('parseMarkdown extracts front-matter', () => {
   const p = path.join(__dirname, 'temp.md');
-  fs.writeFileSync(p, `---\ntitle: T\nauthor: A\ndescription: D\ncover: C\n---\nBody`);
+  fs.writeFileSync(p, `---\ntitle: T\nauthor: A\ndescription: D\ncover: C\narticle_type: newspic\n---\nBody`);
   const r = parseMarkdown(p);
   expect(r.title).toBe('T');
   expect(r.author).toBe('A');
   expect(r.digest).toBe('D');
   expect(r.localThumbPath).toBe('C');
+  expect(r.articleType).toBe('newspic');
   expect(r.contentMarkdown).toBe('Body');
+  fs.unlinkSync(p);
+});
+
+test('parseMarkdown defaults article_type to news', () => {
+  const p = path.join(__dirname, 'temp-default-type.md');
+  fs.writeFileSync(p, `---\ntitle: T\n---\nBody`);
+  const r = parseMarkdown(p);
+  expect(r.articleType).toBe('news');
+  fs.unlinkSync(p);
+});
+
+test('parseMarkdown rejects invalid article_type', () => {
+  const p = path.join(__dirname, 'temp-invalid-type.md');
+  fs.writeFileSync(p, `---\ntitle: T\narticle_type: video\n---\nBody`);
+  expect(() => parseMarkdown(p)).toThrow(/Invalid article_type/);
   fs.unlinkSync(p);
 });
 

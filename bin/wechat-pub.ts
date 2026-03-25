@@ -5,6 +5,7 @@ import { syncCommand } from '../src/commands/sync';
 import { listCommand } from '../src/commands/list';
 import { initCommand } from '../src/commands/init';
 import { latestCommand } from '../src/commands/latest';
+import { publishDirCommand } from '../src/commands/publish-dir';
 
 const program = new Command();
 
@@ -18,6 +19,7 @@ Example Usage:
   $ wechat-pub sync _posts/2024-03-06-hello.md
   $ wechat-pub latest 5 --force
   $ wechat-pub list 10
+  $ wechat-pub publish-dir ./wechat-drafts/my-draft
   `);
 
 program
@@ -53,6 +55,15 @@ program
   .option('-c, --config <path>', 'Path to a custom configuration file', '.wechat.yml')
   .action(async (count, options) => {
     await listCommand(count, options);
+  });
+
+program
+  .command('publish-dir <dir>')
+  .description('Publish a draft payload directory (one JSON + local images) to WeChat draft box')
+  .option('-d, --dry-run', 'Resolve placeholders and validate only; do not call WeChat API')
+  .option('-c, --config <path>', 'Path to a custom configuration file', '.wechat.yml')
+  .action(async (dir, options) => {
+    await publishDirCommand(dir, options);
   });
 
 program.parse(process.argv);
