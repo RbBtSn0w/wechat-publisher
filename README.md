@@ -61,7 +61,7 @@ siteUrl: "https://your-blog.me" # 必填：用于修复博文内相对链接
 postsDir: "_posts"             # 博客文章目录
 assetsDir: "assets"            # 静态资源根目录
 ```
-*提示：请务必将运行机器的 IP 加入微信公众平台后台的“IP白名单”。*
+*提示：请务必将运行机器的 IP 加入[微信公众平台后台的“IP白名单”](https://developers.weixin.qq.com/console/product/mp/wx1ef3c52fafa09019?tab1=basicInfo&tab2=dev)。*
 
 ### 4. 文章 Front-matter（可选）
 支持通过 Front-matter 指定微信公众号草稿文章类型：
