@@ -11,7 +11,8 @@
     "url": "https://github.com/RbBtSn0w/wechat-publisher.git"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "scripts": {
     "build": "tsc && chmod +x dist/bin/wechat-pub.js",
