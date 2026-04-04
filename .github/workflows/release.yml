@@ -30,7 +30,7 @@ jobs:
         id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+        run: npx semantic-release@25
       - name: Dual Publish to GitHub Packages
         # 这里尝试直接发布。如果 semantic-release 没有更新版本，
         # npm publish 会因为版本冲突报错，我们用 || true 容错，
