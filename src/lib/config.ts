@@ -6,17 +6,19 @@ import { AppConfig } from '../types';
 
 dotenv.config();
 
-export function loadConfig(configPath = '.wechat.yml'): AppConfig {
+export function loadConfig(configPath = 'wechat.config.yml'): AppConfig {
   let fullPath = path.resolve(process.cwd(), configPath);
   
-  // If not found in CWD and we are using the default name, 
-  // we strictly use CWD for the independent tool behavior.
-  // The fallback to 'wechat-publisher' directory was only for the transition phase.
-  if (!fs.existsSync(fullPath) && configPath === '.wechat.yml') {
-    // Keep the fallback for now to avoid breaking the user's current setup during migration
-    const subProjectPath = path.resolve(process.cwd(), 'wechat-publisher', '.wechat.yml');
-    if (fs.existsSync(subProjectPath)) {
-      fullPath = subProjectPath;
+  // Backward compatibility with older default name
+  if (!fs.existsSync(fullPath) && configPath === 'wechat.config.yml') {
+    const legacyPath = path.resolve(process.cwd(), '.wechat.yml');
+    if (fs.existsSync(legacyPath)) {
+      fullPath = legacyPath;
+    } else {
+      const subProjectPath = path.resolve(process.cwd(), 'wechat-publisher', '.wechat.yml');
+      if (fs.existsSync(subProjectPath)) {
+        fullPath = subProjectPath;
+      }
     }
   }
 
@@ -25,15 +27,13 @@ export function loadConfig(configPath = '.wechat.yml'): AppConfig {
   if (fs.existsSync(fullPath)) {
     const fileContents = fs.readFileSync(fullPath, 'utf8');
     ymlConfig = yaml.parse(fileContents) || {};
-  } else {
-    // If we still don't have a file, and we are not using environment variables, this will fail below
   }
 
-  const appId = process.env.APP_ID || ymlConfig.appId;
-  const appSecret = process.env.APP_SECRET || ymlConfig.appSecret;
+  const appId = process.env.WECHAT_APP_ID || process.env.APP_ID || ymlConfig.appId;
+  const appSecret = process.env.WECHAT_APP_SECRET || process.env.APP_SECRET || ymlConfig.appSecret;
 
   if (!appId || !appSecret) {
-    throw new Error('Missing WeChat AppID or AppSecret in environment or config file.');
+    throw new Error('Missing WeChat AppID or AppSecret. Please set WECHAT_APP_ID and WECHAT_APP_SECRET in your .env file or environment variables.');
   }
 
   return {

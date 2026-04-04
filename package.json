@@ -1,10 +1,17 @@
 {
-  "name": "wechat-publisher",
+  "name": "@rbbtsn0w/wechat-publisher",
   "version": "1.0.0",
   "description": "WeChat Post Publisher CLI",
   "main": "dist/index.js",
   "bin": {
     "wechat-pub": "dist/bin/wechat-pub.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RbBtSn0w/wechat-publisher.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "build": "tsc && chmod +x dist/bin/wechat-pub.js",

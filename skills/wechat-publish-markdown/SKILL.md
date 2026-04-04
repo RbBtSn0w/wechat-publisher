@@ -14,7 +14,7 @@ Prefer dry-run first, then publish.
 
 1. Verify tool and config.
 - Ensure `wechat-pub` is available.
-- Ensure `.wechat.yml` (or `--config`) includes valid `appId` and `appSecret`.
+- Ensure `.env` or env vars include valid `WECHAT_APP_ID` and `WECHAT_APP_SECRET`.
 
 2. Choose command by intent.
 - Single article: `wechat-pub sync <post-path>`

@@ -24,15 +24,66 @@
 - **绝对链接转换**：自动将站内相对链接转换为绝对链接（基于 `siteUrl` 配置）。
 - **健壮性净化**：自动移除 `id`、`class` 属性，并截断超限的标题与摘要，确保符合微信 API 规范。
 
-## 🛠 工作流程
+## 🔄 流程图 (Workflow)
 
-1.  **解析 (Parsing)**：读取 Markdown 提取元数据，自动处理超长标题和摘要。
-2.  **渲染 (Rendering)**：
-    - 将 **Mermaid** 代码块通过远程服务转为图片并缓存。
-    - 定位本地图片并同步到微信 CDN。
-3.  **转译 (Conversion)**：Markdown 转 HTML，执行 CSS 内联及链接补全。
-4.  **校验 (Validating)**：查询微信后台草稿列表，处理命名冲突。
-5.  **发布 (Publishing)**：通过微信 API (`draft/add` 或 `draft/update`) 创建/覆盖草稿。
+### 开发者发布流 (CI/CD & Semantic Release)
+```text
+  [ Developer ]
+       |
+  git push main
+       |
+       v
++-----------------------------------------------------------+
+| GitHub Actions (release.yml)                              |
+|                                                           |
+|  1. [ Setup ] ----> Install Node.js & Dependencies        |
+|  2. [ Verify ] ---> Run Lint & Vitest                     |
+|  3. [ Build ] ----> tsc (Compile TS to JS)                |
+|  4. [ Release ] --> npx semantic-release                  |
+|          |                                                |
+|          +--------> Analyze Commits (fix/feat/perf)       |
+|          +--------> Generate Changelog                    |
+|          +--------> Create GitHub Tag (e.g. v1.1.0)       |
+|          +--------> Publish to GitHub Packages (@rbbtsn0w)|
++-----------------------------------------------------------+
+```
+
+### 用户使用流 (CLI & WeChat Sync)
+```text
+      [ User Blog Project Root ]
+      /           |            \
+     /            |             \
+[ .env ]  [ wechat.config.yml ] [ _posts/*.md ]
+(Secrets)   (Public Config)      (Content)
+    |             |                 |
+    | gitignore   | git commit      |
+    |             |                 |
+    +-------------+-----------------+
+                  |
+         [ Run: wechat-pub sync ]
+                  |
+                  v
++---------------------------------------+
+| wechat-publisher CLI Engine           |
+|                                       |
+|  1. Load Config (Merge Env + YAML)    |
+|  2. Parse Markdown & Front-matter     |
+|  3. Image Pipeline:                   |
+|     - Local Img -> Upload to WeChat   |
+|     - Mermaid   -> Render & Upload    |
+|  4. High-Fidelity Rendering:          |
+|     - HTML + CSS Inlining (Juice)     |
+|     - Fix List Items (Remove <br>)    |
++---------------------------------------+
+                  |
+                  v
+       [ WeChat API Server ]
+                  |
+        +---------+---------+
+        |                   |
+ [ Material Lib ]    [ Draft Box ]
+ (Permanent Imgs)    (Final Post)
+```
 
 ## 🚀 快速开始
 
@@ -52,26 +103,20 @@ wechat-pub init
 ```
 
 ### 3. 配置参数
-编辑生成的 `.wechat.yml`：
+编辑生成的 `wechat.config.yml`：
 ```yaml
-appId: "您的微信AppID"
-appSecret: "您的微信AppSecret"
 author: "博主名称"
 siteUrl: "https://your-blog.me" # 必填：用于修复博文内相对链接
 postsDir: "_posts"             # 博客文章目录
 assetsDir: "assets"            # 静态资源根目录
 ```
-*提示：请务必将运行机器的 IP 加入[微信公众平台后台的“IP白名单”](https://developers.weixin.qq.com/console/product/mp/wx1ef3c52fafa09019?tab1=basicInfo&tab2=dev)。*
 
-### 4. 文章 Front-matter（可选）
-支持通过 Front-matter 指定微信公众号草稿文章类型：
-
-```yaml
----
-title: "示例文章"
-article_type: "news"    # 可选: news | newspic（默认 news）
----
+同时，在生成的 `.env` 文件中配置您的凭证（`init` 命令会自动尝试将 `.env` 添加到 `.gitignore`）：
+```env
+WECHAT_APP_ID=您的微信AppID
+WECHAT_APP_SECRET=您的微信AppSecret
 ```
+*提示：请务必将运行机器的 IP 加入[微信公众平台后台的“IP白名单”](https://developers.weixin.qq.com/console/product/mp/wx1ef3c52fafa09019?tab1=basicInfo&tab2=dev)。*
 
 ## 📖 常用命令
 
@@ -97,108 +142,12 @@ article_type: "news"    # 可选: news | newspic（默认 news）
 - **目录 DSL 发布（1个 JSON + 图片目录）**：
   ```bash
   wechat-pub publish-dir ./wechat-drafts/my-draft
-  wechat-pub publish-dir ./wechat-drafts/my-draft --dry-run
   ```
-
-### 5. 目录 DSL 输入（`publish-dir`）
-
-- 目录内要求：**恰好 1 个 JSON 文件**，可包含多张图片。
-- JSON 结构与微信 `draft/add` 官方请求体对齐（重点是 `articles`）。
-- 本地图片占位使用 `local://文件名`，发布时会自动上传并回填：
-  - `news`: `thumb_media_id` 支持 `local://...`（回填永久 `media_id`）
-  - `newspic`: `image_info.image_list[].image_media_id` 支持 `local://...`（回填永久 `media_id`）
-  - `content` 中出现的 `local://...` 会上传为正文图片 URL 并替换
-
-### 6. `publish-dir` 完整教程
-
-#### 6.1 目录结构
-
-```text
-wechat-drafts/
-  my-news/
-    draft.json
-    cover.jpg
-    body-1.png
-  my-newspic/
-    draft.json
-    pic-1.jpg
-    pic-2.jpg
-```
-
-> 一个目录只放一个 JSON（比如 `draft.json`），其余是图片文件。
-
-#### 6.2 `news` 模板（图文消息）
-
-参考模板文件：`templates/publish-dir/news/draft.json`
-
-```json
-{
-  "articles": [
-    {
-      "article_type": "news",
-      "title": "示例图文消息",
-      "author": "RbBtSn0w",
-      "digest": "这是一个图文消息示例",
-      "content": "<h1>正文标题</h1><p>正文图片：<img src=\"local://body-1.png\" /></p>",
-      "thumb_media_id": "local://cover.jpg",
-      "need_open_comment": 0,
-      "only_fans_can_comment": 0
-    }
-  ]
-}
-```
-
-#### 6.3 `newspic` 模板（图片消息）
-
-参考模板文件：`templates/publish-dir/newspic/draft.json`
-
-```json
-{
-  "articles": [
-    {
-      "article_type": "newspic",
-      "title": "示例图片消息",
-      "author": "RbBtSn0w",
-      "content": "这是一条图片消息正文",
-      "image_info": {
-        "image_list": [
-          { "image_media_id": "local://pic-1.jpg" },
-          { "image_media_id": "local://pic-2.jpg" }
-        ]
-      },
-      "need_open_comment": 0,
-      "only_fans_can_comment": 0
-    }
-  ]
-}
-```
-
-#### 6.4 执行命令
-
-```bash
-# 仅校验并生成回填结果（不会调用微信接口）
-wechat-pub publish-dir ./wechat-drafts/my-news --dry-run
-
-# 正式发布到草稿箱
-wechat-pub publish-dir ./wechat-drafts/my-news
-```
-
-#### 6.5 字段回填规则
-
-- `thumb_media_id: "local://cover.jpg"` -> 自动上传永久素材，替换为 `media_id`。
-- `image_media_id: "local://pic-1.jpg"` -> 自动上传永久素材，替换为 `media_id`。
-- `content` 中 `local://xxx` -> 自动上传正文图片（`uploadimg`），替换为图片 URL。
-
-#### 6.6 常见报错排查
-
-- `Expected exactly one JSON file ...`：目录里 JSON 不是 1 个。
-- `Referenced local file not found ...`：`local://` 对应文件不存在。
-- `articles[x].thumb_media_id must be a non-empty string`：`news` 缺少封面字段。
-- `image_list exceeds 20 images`：`newspic` 图片超过微信限制（最多 20）。
 
 ## 📂 本地存储
 
-- `.wechat.yml`: 敏感凭证。
+- `wechat.config.yml`: 基础配置。
+- `.env`: 敏感凭证，**请勿提交到版本库**。
 - `.wechat-cache.json`: 图片与 URL 映射缓存。
 - `.mermaid-cache/`: 存储生成的 Mermaid 图片。
 
