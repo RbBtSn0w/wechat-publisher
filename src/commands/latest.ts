@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { loadConfig } from '../lib/config';
+import { formatErrorWithHints } from '../lib/error-hints';
 import { syncCommand } from './sync';
 
 export async function latestCommand(countStr: string | undefined, options: any) {
@@ -35,14 +36,14 @@ export async function latestCommand(countStr: string | undefined, options: any) 
       try {
         await syncCommand(relativePath, options);
       } catch (err: any) {
-        console.error(`\n❌ Error syncing ${file}: ${err.message}`);
+        console.error(formatErrorWithHints(`Error syncing ${file}: ${err.message}`));
         console.log(`Continuing with next file...`);
       }
     }
 
     console.log(`\n✨ Batch sync completed!`);
   } catch (err: any) {
-    console.error(`\n❌ Batch Error: ${err.message}`);
+    console.error(formatErrorWithHints(`Batch Error: ${err.message}`));
     process.exit(1);
   }
 }

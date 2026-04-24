@@ -6,6 +6,7 @@ import { Uploader } from '../lib/uploader';
 import { ResourceCache } from '../lib/cache';
 import { TEMP_PATHS } from '../lib/constants';
 import { readDraftPayloadFromDirectory, resolveDraftPayloadMedia } from '../lib/directory-draft';
+import { formatErrorWithHints } from '../lib/error-hints';
 
 export async function publishDirCommand(directory: string, options: any) {
   try {
@@ -42,7 +43,7 @@ export async function publishDirCommand(directory: string, options: any) {
     const mediaId = await apiClient.addDraft(payload.articles);
     console.log(`\n✅ Success! Draft created with Media ID: ${mediaId}`);
   } catch (err: any) {
-    console.error(`\n❌ Error: ${err.message}`);
+    console.error(formatErrorWithHints(err.message));
     process.exit(1);
   }
 }

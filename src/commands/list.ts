@@ -1,5 +1,6 @@
 import { loadConfig } from '../lib/config';
 import { WeChatAPIClient } from '../lib/api-client';
+import { formatErrorWithHints } from '../lib/error-hints';
 
 export async function listCommand(countStr: string | undefined, options: any) {
   try {
@@ -23,7 +24,7 @@ export async function listCommand(countStr: string | undefined, options: any) {
       console.log(`    Updated: ${time}\n`);
     });
   } catch (err: any) {
-    console.error(`\n❌ Error: ${err.message}`);
+    console.error(formatErrorWithHints(err.message));
     process.exit(1);
   }
 }

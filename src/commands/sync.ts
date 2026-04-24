@@ -3,6 +3,7 @@ import { processPost } from '../lib/processor';
 import { WeChatAPIClient } from '../lib/api-client';
 import { Uploader } from '../lib/uploader';
 import { TEMP_PATHS } from '../lib/constants';
+import { formatErrorWithHints } from '../lib/error-hints';
 import path from 'path';
 import fs from 'fs';
 import readline from 'readline';
@@ -102,7 +103,7 @@ export async function syncCommand(postPath: string, options: any) {
     
     console.log(`\n✅ Success! Draft created with Media ID: ${mediaId}`);
   } catch (err: any) {
-    console.error(`\n❌ Error: ${err.message}`);
+    console.error(formatErrorWithHints(err.message));
     process.exit(1);
   }
 }
