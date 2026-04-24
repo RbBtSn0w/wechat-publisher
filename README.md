@@ -87,16 +87,36 @@
 
 ## 🚀 快速开始
 
-### 1. 全局安装
+### 1. 安装
+
+#### 方式一：从 npm 安装（推荐）
 ```bash
-# 进入工具目录
+npm install -g @rbbtsn0w/wechat-publisher
+```
+
+安装完成后，即可在终端中直接使用 `wechat-pub` 命令。
+
+> **临时使用（免安装）**：也可通过 `npx` 直接运行，无需全局安装：
+> ```bash
+> npx @rbbtsn0w/wechat-publisher sync _posts/my-post.md
+> ```
+
+#### 方式二：从源码安装（适合开发者）
+```bash
+git clone https://github.com/RbBtSn0w/wechat-publisher.git
 cd wechat-publisher
 npm install
 npm run build
 npm link --force
 ```
 
-### 2. 项目初始化
+### 2. 更新版本
+如果您是通过 npm 全局安装的，可以运行以下命令更新到最新版本：
+```bash
+npm update -g @rbbtsn0w/wechat-publisher
+```
+
+### 3. 项目初始化
 在您的**博客项目根目录**运行：
 ```bash
 wechat-pub init

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import fs from 'fs';
+import path from 'path';
 import { Command } from 'commander';
 import { syncCommand } from '../src/commands/sync';
 import { listCommand } from '../src/commands/list';
@@ -7,12 +9,26 @@ import { initCommand } from '../src/commands/init';
 import { latestCommand } from '../src/commands/latest';
 import { publishDirCommand } from '../src/commands/publish-dir';
 
+// Helper to get version from package.json regardless of whether we are running from /bin or /dist/bin
+const getVersion = () => {
+  const pkgPaths = [
+    path.join(__dirname, '../package.json'),    // Running from /bin (ts-node)
+    path.join(__dirname, '../../package.json'), // Running from /dist/bin (compiled)
+  ];
+  for (const p of pkgPaths) {
+    if (fs.existsSync(p)) {
+      return JSON.parse(fs.readFileSync(p, 'utf8')).version;
+    }
+  }
+  return 'unknown';
+};
+
 const program = new Command();
 
 program
   .name('wechat-pub')
   .description('A CLI tool to sync Markdown blog posts to WeChat Official Account Draft Box')
-  .version('1.0.0')
+  .version(getVersion())
   .addHelpText('after', `
 Example Usage:
   $ wechat-pub init
