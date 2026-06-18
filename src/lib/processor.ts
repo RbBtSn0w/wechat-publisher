@@ -1,4 +1,4 @@
-import { parseMarkdown, convertMarkdownToHtml, extractImagePaths, replaceImagePaths, extractMermaidBlocks, replaceMermaidBlocks } from './parser';
+import { parseMarkdown, convertMarkdownToHtml, extractImagePaths, extractMermaidBlocks, replaceMermaidBlocks } from './parser';
 import { inlineCss } from './converter';
 import { BlogPost, AppConfig } from '../types';
 import { Uploader } from './uploader';
