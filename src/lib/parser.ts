@@ -36,7 +36,7 @@ export function parseMarkdown(filePath: string): Partial<BlogPost> {
     digest = digest.substring(0, 61) + '...';
   }
 
-  let localThumbPath = metadata.cover || metadata.image?.path || '';
+  const localThumbPath = metadata.cover || metadata.image?.path || '';
   const rawArticleType = metadata.article_type ?? metadata.articleType ?? 'news';
   const articleType = String(rawArticleType).trim().toLowerCase() as WeChatArticleType;
 
