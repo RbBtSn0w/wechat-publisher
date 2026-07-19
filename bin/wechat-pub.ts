@@ -32,6 +32,7 @@ program
   .addHelpText('after', `
 Example Usage:
   $ wechat-pub init
+  $ wechat-pub init --draft newspic --output ./wechat-drafts/my-gallery
   $ wechat-pub sync _posts/2024-03-06-hello.md
   $ wechat-pub latest 5 --force
   $ wechat-pub list 10
@@ -40,9 +41,31 @@ Example Usage:
 
 program
   .command('init')
-  .description('Initialize a new wechat.config.yml configuration template in the current directory')
-  .action(() => {
-    initCommand();
+  .description('Initialize project configuration or a news/newspic draft directory')
+  .option('--draft <type>', 'Create a draft template of type news or newspic')
+  .option('-o, --output <dir>', 'Output directory for the draft template')
+  .option('--title <title>', 'Draft title')
+  .option('--author <author>', 'Draft author')
+  .option('--content <content>', 'Draft HTML or image-post caption')
+  .option('--digest <digest>', 'Optional news summary')
+  .option('--cover <file>', 'News cover image relative to the output directory')
+  .option('--images <files...>', 'Newspic image files relative to the output directory, in order')
+  .option('--open-comment', 'Enable comments')
+  .option('--fans-only-comment', 'Allow comments from fans only')
+  .option('-f, --force', 'Overwrite an existing draft.json')
+  .option('-c, --config <path>', 'Configuration used to resolve the default author', 'wechat.config.yml')
+  .action(async options => {
+    try {
+      await initCommand({
+        ...options,
+        needOpenComment: options.openComment,
+        onlyFansCanComment: options.fansOnlyComment,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`\n❌ Error: ${message}`);
+      process.exitCode = 1;
+    }
   });
 
 program

@@ -1,8 +1,47 @@
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
 import yaml from 'yaml';
+import {
+  completeDraftInitOptions,
+  initializeDraftDirectory,
+  PartialDraftInitOptions,
+} from '../lib/draft-initializer';
 
-export function initCommand() {
+type InitOptions = PartialDraftInitOptions & {
+  config?: string;
+};
+
+function promptUser(question: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question(question, answer => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
+function loadConfiguredAuthor(configPath = 'wechat.config.yml'): string | undefined {
+  const candidates = [
+    path.resolve(process.cwd(), configPath),
+    path.resolve(process.cwd(), '.wechat.yml'),
+  ];
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const contents = yaml.parse(fs.readFileSync(candidate, 'utf8'));
+      if (typeof contents?.author === 'string' && contents.author.trim()) {
+        return contents.author.trim();
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function initProjectConfig() {
   const configPath = path.resolve(process.cwd(), 'wechat.config.yml');
   const envPath = path.resolve(process.cwd(), '.env');
   
@@ -43,4 +82,24 @@ export function initCommand() {
   console.log('Next steps:');
   console.log('1. Fill in WECHAT_APP_ID and WECHAT_APP_SECRET in the .env file.');
   console.log('2. Commit wechat.config.yml to your repository, but NEVER commit .env.');
+}
+
+export async function initCommand(options: InitOptions = {}) {
+  if (!options.draft) {
+    initProjectConfig();
+    return;
+  }
+
+  const completed = await completeDraftInitOptions(options, {
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    ask: promptUser,
+    defaultAuthor: loadConfiguredAuthor(options.config),
+  });
+  const result = initializeDraftDirectory(completed);
+
+  console.log(`✅ Created ${completed.draft} draft template: ${result.payloadPath}`);
+  console.log(`Images: ${result.imageFiles.length}`);
+  console.log('Next steps:');
+  console.log(`1. Validate: wechat-pub publish-dir "${result.outputDirectory}" --dry-run`);
+  console.log(`2. Publish: wechat-pub publish-dir "${result.outputDirectory}"`);
 }

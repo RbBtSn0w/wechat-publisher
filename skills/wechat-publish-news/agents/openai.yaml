@@ -1,4 +1,4 @@
 interface:
   display_name: "WeChat News Publisher"
-  short_description: "Publish news draft payload directories"
-  default_prompt: "Use this skill to publish article_type=news payload directories via wechat-pub publish-dir."
+  short_description: "Complete and publish WeChat news drafts"
+  default_prompt: "Use $wechat-publish-news to collect missing article details, validate the payload, and publish a WeChat news draft."
