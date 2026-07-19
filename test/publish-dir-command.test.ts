@@ -45,3 +45,34 @@ test('publish-dir dry-run validates a local payload without WeChat credentials',
   expect(loadConfig).not.toHaveBeenCalled();
   expect(exitSpy).not.toHaveBeenCalled();
 });
+
+test('publish-dir reports a missing API client before attempting to add a draft', async () => {
+  const draftDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-pub-command-'));
+  fs.writeFileSync(
+    path.join(draftDir, 'draft.json'),
+    JSON.stringify({
+      articles: [
+        {
+          article_type: 'newspic',
+          content: 'hello',
+          image_info: {
+            image_list: [{ image_media_id: 'existing-media-id' }],
+          },
+        },
+      ],
+    })
+  );
+  vi.mocked(loadConfig).mockReturnValue(undefined as never);
+  vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  const errors: string[] = [];
+  vi.spyOn(console, 'error').mockImplementation(message => errors.push(String(message)));
+  vi.spyOn(process, 'exit').mockImplementation(code => {
+    throw new Error(`process.exit(${code})`);
+  });
+
+  await expect(
+    publishDirCommand(draftDir, { dryRun: false, config: 'missing.yml' })
+  ).rejects.toThrow(/process\.exit\(1\)/);
+
+  expect(errors.join('\n')).toMatch(/WeChat API client is required/);
+});

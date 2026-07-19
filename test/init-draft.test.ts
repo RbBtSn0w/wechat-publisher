@@ -6,6 +6,7 @@ import {
   completeDraftInitOptions,
   initializeDraftDirectory,
 } from '../src/lib/draft-initializer';
+import { initCommand } from '../src/commands/init';
 
 function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-pub-init-draft-'));
@@ -148,4 +149,24 @@ test('initializeDraftDirectory rejects image paths outside the draft directory',
       onlyFansCanComment: false,
     })
   ).toThrow(/outside the draft directory/i);
+});
+
+test('initCommand ignores a malformed optional author config', async () => {
+  const root = makeTempDir();
+  const outputDir = path.join(root, 'draft');
+  const configPath = path.join(root, 'invalid.yml');
+  fs.mkdirSync(outputDir);
+  fs.writeFileSync(path.join(outputDir, 'image.png'), 'image');
+  fs.writeFileSync(configPath, 'author: [invalid');
+
+  await initCommand({
+    draft: 'newspic',
+    output: outputDir,
+    title: 'Gallery',
+    content: 'Caption',
+    config: configPath,
+  });
+
+  const payload = JSON.parse(fs.readFileSync(path.join(outputDir, 'draft.json'), 'utf8'));
+  expect(payload.articles[0]).not.toHaveProperty('author');
 });

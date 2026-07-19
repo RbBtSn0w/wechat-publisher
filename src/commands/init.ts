@@ -29,9 +29,13 @@ function loadConfiguredAuthor(configPath = 'wechat.config.yml'): string | undefi
   ];
   for (const candidate of candidates) {
     if (!fs.existsSync(candidate)) continue;
-    const contents = yaml.parse(fs.readFileSync(candidate, 'utf8'));
-    if (typeof contents?.author === 'string' && contents.author.trim()) {
-      return contents.author.trim();
+    try {
+      const contents = yaml.parse(fs.readFileSync(candidate, 'utf8'));
+      if (typeof contents?.author === 'string' && contents.author.trim()) {
+        return contents.author.trim();
+      }
+    } catch {
+      continue;
     }
   }
   return undefined;

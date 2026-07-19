@@ -39,8 +39,12 @@ export async function publishDirCommand(directory: string, options: any) {
       return;
     }
 
+    if (!apiClient) {
+      throw new Error('WeChat API client is required when dry-run is false.');
+    }
+
     console.log(`Uploading resolved payload with ${payload.articles.length} article(s) to WeChat Draft Box...`);
-    const mediaId = await apiClient!.addDraft(payload.articles);
+    const mediaId = await apiClient.addDraft(payload.articles);
     console.log(`\n✅ Success! Draft created with Media ID: ${mediaId}`);
   } catch (err: any) {
     console.error(formatErrorWithHints(err.message));
