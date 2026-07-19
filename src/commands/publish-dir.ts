@@ -10,7 +10,6 @@ import { formatErrorWithHints } from '../lib/error-hints';
 
 export async function publishDirCommand(directory: string, options: any) {
   try {
-    const config = loadConfig(options.config);
     const fullDir = path.resolve(process.cwd(), directory);
     if (!fs.existsSync(fullDir) || !fs.statSync(fullDir).isDirectory()) {
       throw new Error(`Directory not found: ${fullDir}`);
@@ -18,8 +17,9 @@ export async function publishDirCommand(directory: string, options: any) {
 
     const rawPayload = readDraftPayloadFromDirectory(fullDir);
     const cache = new ResourceCache();
-    const apiClient = new WeChatAPIClient(config);
-    const uploader = new Uploader(apiClient);
+    const config = options.dryRun ? undefined : loadConfig(options.config);
+    const apiClient = config ? new WeChatAPIClient(config) : undefined;
+    const uploader = apiClient ? new Uploader(apiClient) : undefined;
 
     const { payload, stats } = await resolveDraftPayloadMedia(rawPayload, {
       directory: fullDir,
@@ -40,7 +40,7 @@ export async function publishDirCommand(directory: string, options: any) {
     }
 
     console.log(`Uploading resolved payload with ${payload.articles.length} article(s) to WeChat Draft Box...`);
-    const mediaId = await apiClient.addDraft(payload.articles);
+    const mediaId = await apiClient!.addDraft(payload.articles);
     console.log(`\n✅ Success! Draft created with Media ID: ${mediaId}`);
   } catch (err: any) {
     console.error(formatErrorWithHints(err.message));

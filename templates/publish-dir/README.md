@@ -2,9 +2,17 @@
 
 ## Usage
 
-1. Copy either `news/draft.json` or `newspic/draft.json` into your target directory.
-2. Put image files referenced by `local://...` in the same directory.
-3. Run:
+1. Put the required images in the target directory.
+2. Generate a payload interactively:
+
+```bash
+wechat-pub init --draft news --output ./your-dir
+wechat-pub init --draft newspic --output ./your-dir
+```
+
+For automation, provide required values as flags such as `--title`, `--content`, `--cover`, and `--images`. Existing `draft.json` files require `--force` before they can be overwritten.
+
+3. Validate and publish:
 
 ```bash
 wechat-pub publish-dir ./your-dir --dry-run
@@ -15,3 +23,5 @@ wechat-pub publish-dir ./your-dir
 
 - Exactly one `.json` file is allowed in each publish directory.
 - `local://filename` paths are resolved relative to that directory.
+- Image paths outside the draft directory are rejected.
+- `newspic` images are automatically discovered in stable filename order when `--images` is omitted.

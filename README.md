@@ -122,7 +122,36 @@ npm update -g @rbbtsn0w/wechat-publisher
 wechat-pub init
 ```
 
-### 3. 配置参数
+### 4. 创建图文目录模板
+
+`init --draft` 用于创建可交给 `publish-dir` 的目录 payload，不会调用微信 API。
+
+```bash
+# 标准长文章：目标目录中需已有封面图片
+wechat-pub init \
+  --draft news \
+  --output ./wechat-drafts/my-article \
+  --title "文章标题" \
+  --content "<p>文章正文</p>" \
+  --cover cover.jpg
+
+# 图片消息：自动按文件名顺序枚举目标目录中的 JPG、PNG、GIF
+wechat-pub init \
+  --draft newspic \
+  --output ./wechat-drafts/my-gallery \
+  --title "图片合集" \
+  --content "图片说明"
+```
+
+在交互式终端中可以省略标题、正文、封面或图片列表，CLI 会逐项询问。非交互环境缺少必填值时会直接报错并列出对应参数。已有 `draft.json` 默认不会覆盖；确认覆盖时显式添加 `--force`。
+
+生成后先进行本地验证：
+
+```bash
+wechat-pub publish-dir ./wechat-drafts/my-gallery --dry-run
+```
+
+### 5. 配置参数
 编辑生成的 `wechat.config.yml`：
 ```yaml
 author: "博主名称"
@@ -162,6 +191,10 @@ WECHAT_APP_SECRET=您的微信AppSecret
 - **目录 DSL 发布（1个 JSON + 图片目录）**：
   ```bash
   wechat-pub publish-dir ./wechat-drafts/my-draft
+  ```
+- **创建 `news` / `newspic` 目录模板**：
+  ```bash
+  wechat-pub init --draft newspic --output ./wechat-drafts/my-gallery
   ```
 
 ## 📂 本地存储
