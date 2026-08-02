@@ -92,11 +92,11 @@ export class WeChatAPIClient {
     return response.data.media_id;
   }
 
-  async getDrafts(offset: number = 0, count: number = 20): Promise<any[]> {
+  async getDrafts(offset: number = 0, count: number = 20, includeContent: boolean = false): Promise<any[]> {
     const token = await this.getAccessToken();
     const response = await this.withRetry(() => this.http.post(
       '/cgi-bin/draft/batchget',
-      { offset, count, no_content: 0 },
+      { offset, count, no_content: includeContent ? 0 : 1 },
       { params: { access_token: token } }
     ));
     if (response.data.errcode && response.data.errcode !== 0) {
@@ -111,7 +111,7 @@ export class WeChatAPIClient {
     let offset = 0;
     let hasMore = true;
     while (hasMore) {
-      const page = await this.getDrafts(offset, pageSize);
+      const page = await this.getDrafts(offset, pageSize, true);
       allDrafts.push(...page);
       hasMore = page.length === pageSize;
       if (hasMore) offset += page.length;

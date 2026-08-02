@@ -168,18 +168,36 @@ export function replaceMathExpressions(markdown: string, replacements: Record<st
 
 export function extractImagePaths(markdown: string): string[] {
   const paths = new Set<string>();
+  const lines = markdown.split(/\r?\n/);
+  const visibleLines: string[] = [];
+  let fence: { character: string; length: number } | null = null;
+
+  for (const line of lines) {
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      if (!fence) {
+        fence = { character: fenceMatch[1][0], length: fenceMatch[1].length };
+      } else if (fenceMatch[1][0] === fence.character && fenceMatch[1].length >= fence.length) {
+        fence = null;
+      }
+      visibleLines.push('');
+      continue;
+    }
+    visibleLines.push(fence ? '' : line);
+  }
+  const visibleMarkdown = visibleLines.join('\n');
 
   // Support optional Markdown titles and angle-bracket destinations.
   const mdRegex = /!\[[^\]]*\]\(\s*(?:<([^>\r\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
   let match: RegExpExecArray | null;
-  while ((match = mdRegex.exec(markdown)) !== null) {
+  while ((match = mdRegex.exec(visibleMarkdown)) !== null) {
     paths.add((match[1] || match[2]).trim());
   }
 
   // HTML attributes may appear in any order and may use single or double quotes.
   const htmlRegex = /<img\b[^>]*>/gi;
   const srcRegex = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
-  while ((match = htmlRegex.exec(markdown)) !== null) {
+  while ((match = htmlRegex.exec(visibleMarkdown)) !== null) {
     const srcMatch = match[0].match(srcRegex);
     if (srcMatch) paths.add((srcMatch[1] || srcMatch[2] || srcMatch[3]).trim());
   }

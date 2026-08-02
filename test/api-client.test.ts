@@ -12,6 +12,7 @@ test('WeChatAPIClient retries transient failures and paginates drafts', async ()
   let tokenCalls = 0;
   let addCalls = 0;
   let multipartCalls = 0;
+  const noContentValues: number[] = [];
   const server = http.createServer(async (request, response) => {
     if (request.url?.startsWith('/cgi-bin/token')) {
       tokenCalls += 1;
@@ -53,6 +54,7 @@ test('WeChatAPIClient retries transient failures and paginates drafts', async ()
         request.on('end', () => resolve(chunks));
       });
       const offset = JSON.parse(body).offset;
+      noContentValues.push(JSON.parse(body).no_content);
       response.setHeader('content-type', 'application/json');
       const item = offset === 0
         ? Array.from({ length: 20 }, (_, index) => ({ media_id: `m-${index}` }))
@@ -80,6 +82,7 @@ test('WeChatAPIClient retries transient failures and paginates drafts', async ()
 
   await expect(client.addDraft([{ title: 'Title' }])).resolves.toBe('new-media');
   await expect(client.getAllDrafts()).resolves.toHaveLength(21);
+  await expect(client.getDrafts(0, 1)).resolves.toHaveLength(20);
   let factoryCalls = 0;
   await expect(client.postMultipart('/multipart', () => {
     factoryCalls += 1;
@@ -88,4 +91,5 @@ test('WeChatAPIClient retries transient failures and paginates drafts', async ()
   expect(tokenCalls).toBe(2);
   expect(addCalls).toBe(2);
   expect(factoryCalls).toBe(2);
+  expect(noContentValues).toEqual([0, 0, 1]);
 });

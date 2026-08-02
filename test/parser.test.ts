@@ -109,6 +109,19 @@ test('extracts image paths with titles, angle brackets, and reordered HTML attri
   ]);
 });
 
+test('extractImagePaths ignores images inside fenced code blocks', () => {
+  const md = [
+    '![real](/assets/real.png)',
+    '',
+    '```markdown',
+    '![example](/assets/example.png)',
+    '<img src="/assets/example.html.png">',
+    '```',
+  ].join('\n');
+
+  expect(extractImagePaths(md)).toEqual(['/assets/real.png']);
+});
+
 test('replaceImagePaths preserves Markdown image titles and handles HTML images', () => {
   const md = [
     '![alt](/assets/cover.png "Cover")',

@@ -1,7 +1,10 @@
 import axios from 'axios';
 import crypto from 'crypto';
 import dns from 'node:dns/promises';
+import type { LookupFunction } from 'node:net';
 import fs from 'fs';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import path from 'path';
 import sharp from 'sharp';
@@ -48,7 +51,7 @@ function isPrivateAddress(address: string): boolean {
   return net.isIP(address) === 4 ? isPrivateIpv4(address) : isPrivateIpv6(address);
 }
 
-async function assertPublicRemoteTarget(parsed: URL): Promise<void> {
+async function resolvePublicRemoteTarget(parsed: URL): Promise<{ address: string; family: number }> {
   const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
     throw new Error('Remote image target resolves to a private or local address: ' + hostname);
@@ -56,12 +59,13 @@ async function assertPublicRemoteTarget(parsed: URL): Promise<void> {
 
   const literalAddress = net.isIP(hostname) ? hostname : undefined;
   const addresses = literalAddress
-    ? [{ address: literalAddress }]
+    ? [{ address: literalAddress, family: net.isIP(literalAddress) }]
     : await dns.lookup(hostname, { all: true, verbatim: true });
   if (addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address))) {
     const resolved = addresses.map(({ address }) => address).join(', ') || hostname;
     throw new Error('Remote image target resolves to a private or local address: ' + resolved);
   }
+  return addresses[0];
 }
 
 function extensionForContentType(contentType: string): string {
@@ -87,9 +91,10 @@ export class RemoteImageDownloader {
     if (parsed.username || parsed.password) {
       throw new Error('Remote image URLs must not contain credentials.');
     }
-    if (!this.options.allowPrivateNetworks) {
-      await assertPublicRemoteTarget(parsed);
-    }
+    const target = this.options.allowPrivateNetworks ? undefined : await resolvePublicRemoteTarget(parsed);
+    const lookup: LookupFunction | undefined = target
+      ? (_hostname, _options, callback) => callback(null, target.address, target.family)
+      : undefined;
 
     const response = await axios.get<ArrayBuffer>(url, {
       responseType: 'arraybuffer',
@@ -97,6 +102,8 @@ export class RemoteImageDownloader {
       maxContentLength: MAX_REMOTE_IMAGE_BYTES,
       maxBodyLength: MAX_REMOTE_IMAGE_BYTES,
       maxRedirects: 0,
+      httpAgent: lookup ? new http.Agent({ lookup }) : undefined,
+      httpsAgent: lookup ? new https.Agent({ lookup }) : undefined,
       validateStatus: status => status >= 200 && status < 300,
     });
     const contentType = String(response.headers['content-type'] || '').toLowerCase();
@@ -104,15 +111,14 @@ export class RemoteImageDownloader {
     const hash = crypto.createHash('sha256').update(Buffer.from(response.data)).digest('hex');
     const directory = TEMP_PATHS.remoteImage;
     const downloadedPath = path.join(directory, `${hash}${extension}`);
+    const outputPath = extension === '.webp' ? path.join(directory, `${hash}.png`) : downloadedPath;
 
-    if (!fs.existsSync(downloadedPath)) {
-      const data = Buffer.from(response.data);
-      const output = extension === '.webp' ? await sharp(data).png().toBuffer() : data;
-      const outputPath = extension === '.webp' ? path.join(directory, `${hash}.png`) : downloadedPath;
-      fs.writeFileSync(outputPath, output);
-      return outputPath;
-    }
+    if (!fs.existsSync(outputPath)) {
+     const data = Buffer.from(response.data);
+     const output = extension === '.webp' ? await sharp(data).png().toBuffer() : data;
+     fs.writeFileSync(outputPath, output);
+   }
 
-    return downloadedPath;
+    return outputPath;
   }
 }

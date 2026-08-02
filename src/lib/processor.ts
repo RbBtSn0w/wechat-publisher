@@ -93,6 +93,23 @@ export async function processPostWithReport(
   );
   if (metadataErrors.length > 0) throw new ArticleValidationError(metadataErrors);
 
+  const articleType = postInfo.articleType || 'news';
+  const coverPath = postInfo.localThumbPath?.trim() || '';
+  const coverMediaId = postInfo.wechatThumbMediaId?.trim() || '';
+  if (uploader && articleType === 'news' && !coverPath && !coverMediaId) {
+    throw new ArticleValidationError([{
+      code: 'ARTICLE_COVER_REQUIRED',
+      severity: 'error',
+      message: 'News articles require a cover image or permanent thumb_media_id before asset processing.',
+    }]);
+  }
+  if (coverPath) {
+    const preflightCoverPath = resolveLocalAssetPath(repoRoot, coverPath, config.assetsDir || '');
+    if (!fs.existsSync(preflightCoverPath)) {
+      throw new Error('Cover image not found: ' + preflightCoverPath);
+    }
+  }
+
   const stats: ConversionStats = {
     uploadedImages: 0,
     uploadedCovers: 0,

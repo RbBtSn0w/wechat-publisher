@@ -4,9 +4,9 @@ import path from 'path';
 import { expect, test } from 'vitest';
 import { processPostWithReport } from '../src/lib/processor';
 
-function makePost(content: string): string {
-  const filePath = path.join(os.tmpdir(), `wechat-post-${Date.now()}-${Math.random()}.md`);
-  fs.writeFileSync(filePath, `---\ntitle: Test\n---\n${content}`);
+function makePost(content: string, metadata: string = 'title: Test'): string {
+ const filePath = path.join(os.tmpdir(), `wechat-post-${Date.now()}-${Math.random()}.md`);
+  fs.writeFileSync(filePath, `---\n${metadata}\n---\n${content}`);
   return filePath;
 }
 
@@ -62,7 +62,7 @@ test('processPostWithReport rejects unsupported footnotes before rendering', asy
 test('processPostWithReport routes remote images through download and upload', async () => {
   const downloaded = path.join(os.tmpdir(), `wechat-remote-${Date.now()}.png`);
   fs.writeFileSync(downloaded, 'image');
-  const filePath = makePost('![remote](https://example.com/image.png)');
+  const filePath = makePost('![remote](https://example.com/image.png)', 'title: Test\narticle_type: newspic');
   const uploads: string[] = [];
   const result = await processPostWithReport(filePath, config, {
     uploadImage: async (localPath: string) => {
@@ -86,5 +86,30 @@ test('processPostWithReport routes remote images through download and upload', a
 test('processPostWithReport fails instead of silently dropping a missing image', async () => {
   const filePath = makePost('![missing](/assets/does-not-exist.png)');
   await expect(processPostWithReport(filePath, config)).rejects.toThrow(/Image not found/);
+  fs.unlinkSync(filePath);
+});
+
+test('processPostWithReport validates a news cover before rendering or uploading assets', async () => {
+  const filePath = makePost('Formula: $E=mc^2$\n\n![image](/assets/image.png)');
+  let formulaCalls = 0;
+  let uploadCalls = 0;
+
+  await expect(processPostWithReport(filePath, config, {
+    uploadImage: async () => {
+      uploadCalls += 1;
+      return 'https://mmbiz.qpic.cn/image.png';
+    },
+  } as any, {
+    formulaRenderer: {
+      getHash: () => 'formula-preflight-test',
+      renderToImage: async () => {
+        formulaCalls += 1;
+        return path.join(os.tmpdir(), 'formula-preflight.png');
+      },
+    },
+  })).rejects.toThrow(/thumb_media_id|cover/i);
+
+  expect(formulaCalls).toBe(0);
+  expect(uploadCalls).toBe(0);
   fs.unlinkSync(filePath);
 });
