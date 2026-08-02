@@ -1,11 +1,27 @@
 import juice from 'juice';
+import sanitizeHtml from 'sanitize-html';
 import { getTheme } from './themes';
 
 export function inlineCss(html: string, siteUrl?: string, style: string = 'tech'): string {
   // 1. First, resolve relative links if siteUrl is provided
-  let processedHtml = html;
+  let processedHtml = sanitizeHtml(html, {
+    allowedTags: [
+      'p', 'br', 'strong', 'b', 'em', 'i', 'del', 's', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+      'hr', 'img', 'a', 'span', 'div',
+    ],
+    allowedAttributes: {
+      '*': ['style', 'class', 'id', 'colspan', 'rowspan'],
+      a: ['href', 'title'],
+      img: ['src', 'alt', 'title', 'width', 'height'],
+    },
+    allowedSchemes: ['http', 'https', 'data', 'file'],
+    allowedSchemesByTag: {
+      img: ['http', 'https', 'data', 'file'],
+    },
+  });
   if (siteUrl) {
-    processedHtml = html.replace(/(<a\s+[^>]*href=")(\/[^"]*)(")/g, (match, p1, p2, p3) => {
+    processedHtml = processedHtml.replace(/(<a\s+[^>]*href=")(\/[^"]*)(")/g, (match, p1, p2, p3) => {
       return `${p1}${siteUrl}${p2}${p3}`;
     });
   }
@@ -42,4 +58,3 @@ export function inlineCss(html: string, siteUrl?: string, style: string = 'tech'
 
   return finalHtml;
 }
-

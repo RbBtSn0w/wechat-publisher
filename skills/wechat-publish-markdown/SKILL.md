@@ -43,6 +43,9 @@ wechat-pub list 10
 - Fail if target Markdown file does not exist.
 - Fail if credentials/config are missing.
 - Treat API errors as hard failures and surface `errcode/errmsg`.
+- Treat missing or failed normal images, formula rendering, unsupported semantic extensions, and WeChat content-limit violations as hard failures before draft creation.
+- Mermaid rendering failures may degrade to an explicit placeholder, but the command must report the affected block and degraded count.
+- `latest` continues after an individual failure and exits non-zero after the batch summary if any post failed.
 
 ## Troubleshooting
 

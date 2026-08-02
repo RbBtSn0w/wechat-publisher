@@ -6,7 +6,10 @@ import { AppConfig } from '../types';
 
 dotenv.config();
 
-export function loadConfig(configPath = 'wechat.config.yml'): AppConfig {
+export function loadConfig(
+  configPath = 'wechat.config.yml',
+  options: { requireCredentials?: boolean } = {}
+): AppConfig {
   let fullPath = path.resolve(process.cwd(), configPath);
   
   // Backward compatibility with older default name
@@ -32,18 +35,21 @@ export function loadConfig(configPath = 'wechat.config.yml'): AppConfig {
   const appId = process.env.WECHAT_APP_ID || process.env.APP_ID || ymlConfig.appId;
   const appSecret = process.env.WECHAT_APP_SECRET || process.env.APP_SECRET || ymlConfig.appSecret;
 
-  if (!appId || !appSecret) {
+  if (options.requireCredentials !== false && (!appId || !appSecret)) {
     throw new Error('Missing WeChat AppID or AppSecret. Please set WECHAT_APP_ID and WECHAT_APP_SECRET in your .env file or environment variables.');
   }
 
   return {
-    appId,
-    appSecret,
+    appId: appId || '',
+    appSecret: appSecret || '',
     baseUrl: ymlConfig.baseUrl || 'https://api.weixin.qq.com',
     siteUrl: ymlConfig.siteUrl || '',
     postsDir: ymlConfig.postsDir || '_posts',
     assetsDir: ymlConfig.assetsDir || 'assets',
     author: ymlConfig.author || '',
     style: ymlConfig.style || 'default',
+    limits: ymlConfig.limits,
+    requestTimeoutMs: ymlConfig.requestTimeoutMs || 15_000,
+    maxRetries: ymlConfig.maxRetries ?? 3,
   };
 }

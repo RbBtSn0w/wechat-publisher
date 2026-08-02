@@ -8,6 +8,17 @@ import { listCommand } from '../src/commands/list';
 import { initCommand } from '../src/commands/init';
 import { latestCommand } from '../src/commands/latest';
 import { publishDirCommand } from '../src/commands/publish-dir';
+import { formatErrorWithHints } from '../src/lib/error-hints';
+
+async function runCommand(action: () => Promise<void>): Promise<void> {
+  try {
+    await action();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(formatErrorWithHints(message));
+    process.exitCode = 1;
+  }
+}
 
 // Helper to get version from package.json regardless of whether we are running from /bin or /dist/bin
 const getVersion = () => {
@@ -75,7 +86,7 @@ program
   .option('-d, --dry-run', 'Perform all local steps but don\'t call WeChat API')
   .option('-c, --config <path>', 'Path to a custom configuration file', 'wechat.config.yml')
   .action(async (count, options) => {
-    await latestCommand(count, options);
+    await runCommand(() => latestCommand(count, options));
   });
 
 program
@@ -85,7 +96,7 @@ program
   .option('-d, --dry-run', 'Perform all local steps but don\'t call WeChat API')
   .option('-c, --config <path>', 'Path to a custom configuration file', 'wechat.config.yml')
   .action(async (postPath, options) => {
-    await syncCommand(postPath, options);
+    await runCommand(() => syncCommand(postPath, options));
   });
 
 program
@@ -93,7 +104,7 @@ program
   .description('List recent drafts from WeChat Official Account')
   .option('-c, --config <path>', 'Path to a custom configuration file', 'wechat.config.yml')
   .action(async (count, options) => {
-    await listCommand(count, options);
+    await runCommand(() => listCommand(count, options));
   });
 
 program
@@ -102,7 +113,7 @@ program
   .option('-d, --dry-run', 'Resolve placeholders and validate only; do not call WeChat API')
   .option('-c, --config <path>', 'Path to a custom configuration file', 'wechat.config.yml')
   .action(async (dir, options) => {
-    await publishDirCommand(dir, options);
+    await runCommand(() => publishDirCommand(dir, options));
   });
 
 program.parse(process.argv);

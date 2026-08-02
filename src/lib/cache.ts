@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { MediaMap } from '../types';
 import { TEMP_PATHS } from './constants';
 
@@ -45,20 +46,25 @@ export class ResourceCache {
     fs.writeFileSync(this.cachePath, JSON.stringify(this.cache, null, 2), 'utf8');
   }
 
-  get(localPath: string): string | null {
+  get(localPath: string, fingerprint?: string): string | null {
     const entry = this.cache[localPath];
-    if (entry) {
+    if (entry && (!fingerprint || entry.fingerprint === fingerprint)) {
       return entry.wechatUrl;
     }
     return null;
   }
 
-  set(localPath: string, wechatUrl: string) {
+  set(localPath: string, wechatUrl: string, fingerprint?: string) {
     this.cache[localPath] = {
       localPath,
       wechatUrl,
       lastUploaded: new Date(),
+      fingerprint,
     };
     this.save();
   }
+}
+
+export function fingerprintFile(localPath: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(localPath)).digest('hex');
 }

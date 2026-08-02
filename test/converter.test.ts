@@ -14,3 +14,23 @@ test('inlineCss applies styles', () => {
   const styledHtml = inlineCss(html);
   expect(styledHtml).toContain('style="');
 });
+
+test('inlineCss removes unsafe raw HTML and keeps table structure', () => {
+  const html = '<script>alert(1)</script><table><tr><th>A</th></tr></table>';
+  const styledHtml = inlineCss(html);
+  expect(styledHtml).not.toContain('<script>');
+  expect(styledHtml).toContain('<table');
+  expect(styledHtml).toContain('border-collapse');
+});
+
+test('inlineCss preserves sanitization when resolving site URLs', () => {
+  const styledHtml = inlineCss(
+    '<script>alert(1)</script><p onclick="alert(2)">Safe</p><a href="/docs">Docs</a>',
+    'https://example.com',
+  );
+
+  expect(styledHtml).not.toContain('<script');
+  expect(styledHtml).not.toContain('onclick');
+  expect(styledHtml).toContain('Safe');
+  expect(styledHtml).toContain('Docs');
+});
