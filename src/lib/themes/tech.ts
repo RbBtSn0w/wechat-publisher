@@ -15,6 +15,9 @@ export const techTheme = `
   .markdown-body li { margin-bottom: 0.5em; display: list-item; list-style-position: outside; }
   .markdown-body ul { list-style-type: disc !important; }
   .markdown-body ol { list-style-type: decimal !important; }
+  .markdown-body table { width: 100%; border-collapse: collapse; margin: 1.2em 0; font-size: 14px; }
+  .markdown-body th, .markdown-body td { border: 1px solid #e5e5e5; padding: 6px 8px; text-align: left; word-break: break-word; }
+  .markdown-body th { background: #f4faf6; color: #07c160; font-weight: 600; }
   .markdown-body hr { border: 0; border-top: 1px dashed #07c160; margin: 2em 0; opacity: 0.5; }
   .markdown-body .footnote { font-size: 12px; color: #888; margin-top: 2em; border-top: 1px solid #eee; padding-top: 1em; }
 `;

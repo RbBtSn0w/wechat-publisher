@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { ResourceCache } from './cache';
+import { fingerprintFile, ResourceCache } from './cache';
 import { Uploader } from './uploader';
 
 type DraftPayload = {
@@ -78,11 +78,11 @@ async function resolvePermanentMediaId(
   }
 
   const cacheKey = `perm:${localPath}`;
-  const cached = options.cache.get(cacheKey);
+  const cached = options.cache.get(cacheKey, fingerprintFile(localPath));
   if (cached) return cached;
 
   const mediaId = await options.uploader.uploadPermanentImage(localPath);
-  options.cache.set(cacheKey, mediaId);
+  options.cache.set(cacheKey, mediaId, fingerprintFile(localPath));
   stats.permanentUploadCount += 1;
   return mediaId;
 }
@@ -101,11 +101,11 @@ async function resolveContentImageUrl(
   }
 
   const cacheKey = `url:${localPath}`;
-  const cached = options.cache.get(cacheKey);
+  const cached = options.cache.get(cacheKey, fingerprintFile(localPath));
   if (cached) return cached;
 
   const url = await options.uploader.uploadImage(localPath);
-  options.cache.set(cacheKey, url);
+  options.cache.set(cacheKey, url, fingerprintFile(localPath));
   stats.contentUploadCount += 1;
   return url;
 }

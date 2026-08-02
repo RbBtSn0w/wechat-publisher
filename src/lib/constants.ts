@@ -45,6 +45,16 @@ export const TEMP_PATHS = {
     if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
     return p;
   },
+  get formula() {
+    const p = path.join(getTempDir(), 'formula-cache');
+    if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+    return p;
+  },
+  get remoteImage() {
+    const p = path.join(getTempDir(), 'remote-image-cache');
+    if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+    return p;
+  },
   get debug() {
     const p = path.join(getTempDir(), 'debug');
     if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });

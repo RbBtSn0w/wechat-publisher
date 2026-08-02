@@ -1,9 +1,9 @@
 import { loadConfig } from '../lib/config';
-import { processPost } from '../lib/processor';
+import { processPostWithReport } from '../lib/processor';
+import { assertValidArticle } from '../lib/article-validator';
 import { WeChatAPIClient } from '../lib/api-client';
 import { Uploader } from '../lib/uploader';
 import { TEMP_PATHS } from '../lib/constants';
-import { formatErrorWithHints } from '../lib/error-hints';
 import path from 'path';
 import fs from 'fs';
 import readline from 'readline';
@@ -23,8 +23,8 @@ function promptUser(query: string): Promise<boolean> {
 }
 
 export async function syncCommand(postPath: string, options: any) {
-  try {
-    const config = loadConfig(options.config);
+  const dryRun = Boolean(options.dryRun);
+  const config = loadConfig(options.config, { requireCredentials: !dryRun });
     const fullPath = path.resolve(process.cwd(), postPath);
     
     if (!fs.existsSync(fullPath)) {
@@ -32,16 +32,21 @@ export async function syncCommand(postPath: string, options: any) {
     }
 
     console.log(`Processing post: ${fullPath}`);
-    const apiClient = new WeChatAPIClient(config);
-    const uploader = new Uploader(apiClient);
+    const apiClient = dryRun ? undefined : new WeChatAPIClient(config);
+    const uploader = apiClient ? new Uploader(apiClient) : undefined;
 
-    const post = await processPost(fullPath, config, options.dryRun ? undefined : uploader);
+    const result = await processPostWithReport(fullPath, config, uploader);
+    const post = result.post;
+    for (const diagnostic of result.diagnostics) {
+      console.warn(`⚠️ ${diagnostic.message}${diagnostic.resource ? ` [${diagnostic.resource}]` : ''}`);
+    }
 
-    if (options.dryRun) {
+    if (dryRun) {
       console.log('--- Dry Run ---');
       console.log(`Title: ${post.title}`);
       console.log(`Author: ${post.author || config.author}`);
       console.log(`Digest: ${post.digest}`);
+      console.log(`Diagnostics: ${result.diagnostics.length}; degraded Mermaid: ${result.stats.degradedMermaid}`);
       
       // Create a filename safe title
       const safeTitle = post.title.replace(/[^\w\s\u4e00-\u9fa5]/gi, '').substring(0, 20).trim().replace(/\s+/g, '_');
@@ -51,15 +56,14 @@ export async function syncCommand(postPath: string, options: any) {
       console.log(`HTML Output saved to ${debugPath} for inspection.`);
       return;
     }
+
+    if (!apiClient) throw new Error('WeChat API client is required for a real sync.');
     
-    const thumbMediaId = post.wechatThumbMediaId || 'DUMMY_MEDIA_ID_REPLACE_ME';
-    if (thumbMediaId === 'DUMMY_MEDIA_ID_REPLACE_ME') {
-      console.warn('Warning: No thumb_media_id provided. This may cause WeChat API to reject the draft.');
-    }
+    const thumbMediaId = post.wechatThumbMediaId || '';
 
     const article = {
       title: post.title,
-      author: post.author || config.author,
+      author: post.author || config.author || '',
       digest: post.digest,
       content: post.contentHtml,
       thumb_media_id: thumbMediaId,
@@ -68,12 +72,25 @@ export async function syncCommand(postPath: string, options: any) {
       only_fans_can_comment: 0,
     };
 
+    assertValidArticle({
+      title: article.title,
+      author: article.author,
+      digest: article.digest,
+      content: article.content,
+      thumbMediaId,
+      articleType: article.article_type,
+    }, config.limits);
+
     console.log('Checking for duplicate drafts...');
-    const drafts = await apiClient.getDrafts();
+    const drafts = await apiClient.getAllDrafts();
     let duplicateMediaId = null;
+    let duplicateIndex = 0;
     for (const draft of drafts) {
-      if (draft.content?.news_item?.[0]?.title === article.title) {
+      const newsItems = draft.content?.news_item || [];
+      const index = newsItems.findIndex((item: any) => item.title === article.title);
+      if (index >= 0) {
         duplicateMediaId = draft.media_id;
+        duplicateIndex = index;
         break;
       }
     }
@@ -89,7 +106,7 @@ export async function syncCommand(postPath: string, options: any) {
 
       if (overwrite) {
         console.log(`Updating existing draft (Media ID: ${duplicateMediaId})...`);
-        await apiClient.updateDraft(duplicateMediaId, 0, article);
+        await apiClient.updateDraft(duplicateMediaId, duplicateIndex, article);
         console.log(`\n✅ Success! Draft updated.`);
         return;
       } else {
@@ -102,8 +119,4 @@ export async function syncCommand(postPath: string, options: any) {
     const mediaId = await apiClient.addDraft([article]);
     
     console.log(`\n✅ Success! Draft created with Media ID: ${mediaId}`);
-  } catch (err: any) {
-    console.error(formatErrorWithHints(err.message));
-    process.exit(1);
-  }
 }

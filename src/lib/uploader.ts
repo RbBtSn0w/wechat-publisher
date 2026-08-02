@@ -10,12 +10,13 @@ export class Uploader {
     validateImage(localPath);
 
     const token = await this.apiClient.getAccessToken();
-    const form = new FormData();
-    form.append('media', fs.createReadStream(localPath));
-
-    const response = await (this.apiClient as any).http.post('/cgi-bin/media/uploadimg', form, {
+    const response = await this.apiClient.postMultipart('/cgi-bin/media/uploadimg', () => {
+      const form = new FormData();
+      form.append('media', fs.createReadStream(localPath));
+      return { body: form, headers: form.getHeaders() };
+    }, {
       params: { access_token: token },
-      headers: form.getHeaders(),
+      timeout: 15_000,
     });
 
     if (response.data.errcode && response.data.errcode !== 0) {
@@ -29,13 +30,13 @@ export class Uploader {
     validateImage(localPath);
 
     const token = await this.apiClient.getAccessToken();
-    const form = new FormData();
-    form.append('media', fs.createReadStream(localPath));
-    form.append('type', 'image');
-
-    const response = await (this.apiClient as any).http.post('/cgi-bin/material/add_material', form, {
+    const response = await this.apiClient.postMultipart('/cgi-bin/material/add_material', () => {
+      const form = new FormData();
+      form.append('media', fs.createReadStream(localPath));
+      form.append('type', 'image');
+      return { body: form, headers: form.getHeaders() };
+    }, {
       params: { access_token: token, type: 'image' },
-      headers: form.getHeaders(),
     });
 
     if (response.data.errcode && response.data.errcode !== 0) {
