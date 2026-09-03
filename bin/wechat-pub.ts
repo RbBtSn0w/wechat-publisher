@@ -40,7 +40,12 @@ const program = new Command();
 program
   .name('wechat-pub')
   .description('A CLI tool to sync Markdown blog posts to WeChat Official Account Draft Box')
-  .version(getVersion())
+  .version(getVersion(), '-v, --version', 'output the version number')
+  .option('-V', 'output the version number')
+  .on('option:V', () => {
+    console.log(getVersion());
+    process.exit(0);
+  })
   .addHelpText('after', `
 Example Usage:
   $ wechat-pub init
