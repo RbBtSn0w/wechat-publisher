@@ -14,6 +14,9 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "build": "tsc && chmod +x dist/bin/wechat-pub.js",
     "start": "node dist/bin/wechat-pub.js",

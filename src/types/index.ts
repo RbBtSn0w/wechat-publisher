@@ -1,4 +1,5 @@
-import { DiagnosticSeverity } from '@rbbtsn0w/wechat-markdown';
+import type { DiagnosticSeverity } from '@rbbtsn0w/wechat-markdown';
+export type { DiagnosticSeverity };
 
 export type WeChatArticleType = 'news' | 'newspic';
 
