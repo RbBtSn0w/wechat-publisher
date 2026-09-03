@@ -19,3 +19,5 @@ export * from './commands/latest';
 export * from './commands/list';
 export * from './commands/publish-dir';
 export * from './commands/init';
+export * from './commands/update';
+export * from './lib/self-update';

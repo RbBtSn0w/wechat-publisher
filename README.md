@@ -119,9 +119,19 @@ npm link --force
 ```
 
 ### 2. 更新版本
-如果您是通过 npm 全局安装的，可以运行以下命令更新到最新版本：
+`wechat-pub` 内置了自我更新命令（支持稳定版、Beta 版与开发版本）：
 ```bash
-npm update -g @rbbtsn0w/wechat-publisher
+# 升级到最新稳定版本
+wechat-pub update
+
+# 升级到最新 Beta 版本
+wechat-pub update --beta
+
+# 升级到最新开发版本 (next)
+wechat-pub update --dev
+
+# 升级到指定 tag 或版本
+wechat-pub update --tag canary
 ```
 
 ### 3. 项目初始化
@@ -204,6 +214,12 @@ WECHAT_APP_SECRET=您的微信AppSecret
 - **创建 `news` / `newspic` 目录模板**：
   ```bash
   wechat-pub init --draft newspic --output ./wechat-drafts/my-gallery
+  ```
+- **更新 CLI 工具版本**：
+  ```bash
+  wechat-pub update        # 升级至最新稳定版
+  wechat-pub update --beta # 升级至最新 Beta 版
+  wechat-pub update --dev  # 升级至最新开发版
   ```
 
 ## 📂 本地存储

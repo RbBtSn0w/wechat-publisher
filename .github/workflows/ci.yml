@@ -4,6 +4,13 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ci:
@@ -31,3 +38,12 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Verify CLI and Update Command
+        run: |
+          node dist/bin/wechat-pub.js --help
+          node dist/bin/wechat-pub.js update --help
+          node dist/bin/wechat-pub.js update --dry-run
+          node dist/bin/wechat-pub.js update --beta --dry-run
+          node dist/bin/wechat-pub.js update --dev --dry-run
+          node dist/bin/wechat-pub.js update --tag canary --dry-run

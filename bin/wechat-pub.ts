@@ -8,6 +8,7 @@ import { listCommand } from '../src/commands/list';
 import { initCommand } from '../src/commands/init';
 import { latestCommand } from '../src/commands/latest';
 import { publishDirCommand } from '../src/commands/publish-dir';
+import { updateCommand } from '../src/commands/update';
 import { formatErrorWithHints } from '../src/lib/error-hints';
 
 async function runCommand(action: () => Promise<void>): Promise<void> {
@@ -48,6 +49,9 @@ Example Usage:
   $ wechat-pub latest 5 --force
   $ wechat-pub list 10
   $ wechat-pub publish-dir ./wechat-drafts/my-draft
+  $ wechat-pub update
+  $ wechat-pub update --beta
+  $ wechat-pub update --dev
   `);
 
 program
@@ -114,6 +118,17 @@ program
   .option('-c, --config <path>', 'Path to a custom configuration file', 'wechat.config.yml')
   .action(async (dir, options) => {
     await runCommand(() => publishDirCommand(dir, options));
+  });
+
+program
+  .command('update')
+  .description('Upgrade wechat-pub CLI to latest, beta, or development version')
+  .option('-b, --beta', 'Install the latest beta release')
+  .option('--dev', 'Install the latest development release')
+  .option('-t, --tag <tag>', 'Install a specific dist-tag or version')
+  .option('-d, --dry-run', 'Print the installation command without executing it')
+  .action(async options => {
+    await runCommand(() => updateCommand(options, getVersion()));
   });
 
 program.parse(process.argv);
