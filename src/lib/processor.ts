@@ -1,6 +1,5 @@
 import {
   parseMarkdown,
-  convertMarkdownToHtml,
   extractImagePaths,
   replaceImagePaths,
   extractMermaidBlocks,
@@ -10,7 +9,8 @@ import {
   extractMathExpressions,
   replaceMathExpressions,
 } from './parser';
-import { inlineCss } from './converter';
+import { neuterLinksToSpans } from './converter';
+import { techTheme } from './themes/tech';
 import { AppConfig, BlogPost, ConversionDiagnostic, ConversionStats, ProcessResult } from '../types';
 import { Uploader } from './uploader';
 import { fingerprintFile, ResourceCache } from './cache';
@@ -19,8 +19,14 @@ import { FormulaRenderer } from './formula-renderer';
 import { RemoteImageDownloader } from './remote-image';
 import { ArticleValidationError, validateArticle } from './article-validator';
 import { getRepoRoot } from './constants';
+import { renderMarkdownToWechat, registerTheme } from '@rbbtsn0w/wechat-markdown';
 import path from 'path';
 import fs from 'fs';
+
+// Keep the publisher's legacy output stable without replacing the SDK's
+// built-in themes. A dedicated name also works with all supported SDK builds.
+const LEGACY_THEME_NAME = 'wechat-publisher-legacy';
+registerTheme(LEGACY_THEME_NAME, techTheme);
 
 export interface MermaidRenderService {
   getHash(mermaidCode: string): string;
@@ -279,11 +285,29 @@ export async function processPostWithReport(
     }
   }
 
-  // 4. Convert to HTML
-  const rawHtml = convertMarkdownToHtml(finalMarkdown);
-  
-  // 5. Inline CSS (Includes link resolution)
-  let contentHtml = inlineCss(rawHtml, config.siteUrl, config.style);
+  // 4-5. Convert Markdown to WeChat-ready inline HTML via the shared SDK
+  // engine. Formulas/Mermaid/images were already rendered and uploaded above
+  // using this project's own cache-aware pipeline, so the SDK's own math,
+  // Mermaid, and image resolution are disabled here to avoid double work.
+  const sdkResult = await renderMarkdownToWechat(finalMarkdown, {
+    theme: LEGACY_THEME_NAME,
+    siteUrl: config.siteUrl,
+    renderMath: false,
+    renderMermaid: false,
+    footnoteLinks: false,
+    gfmAlerts: false,
+    macCodeBlock: false,
+    tableScroller: false,
+  });
+  // LOCAL_IMAGE_UNRESOLVED assumes the caller relies on the SDK's own
+  // `resolveImage` hook; wechat-publisher resolves images itself above via
+  // its uploader/dry-run pipeline, so that diagnostic would be noise here.
+  diagnostics.push(
+    ...sdkResult.diagnostics
+      .filter((d) => d.code !== 'LOCAL_IMAGE_UNRESOLVED')
+      .map((d) => ({ ...d, sourcePath: filePath })),
+  );
+  let contentHtml = neuterLinksToSpans(sdkResult.html);
 
   const contentErrors = validateArticle({
     title: String(postInfo.title || ''),
