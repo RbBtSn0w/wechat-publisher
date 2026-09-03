@@ -68,10 +68,19 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "Publishing to npm using NPM_TOKEN..."
             npm publish --tag next --access public
             echo "Successfully published ${DEV_VERSION} to npm with tag 'next'"
           else
-            echo "::warning::NPM_TOKEN is not set. Skipping npm publish."
+            echo "NPM_TOKEN secret is not provided; attempting OIDC Provenance publish..."
+            # Remove authToken template if empty so npm can use OIDC token exchange
+            sed -i.bak '/_authToken/d' ~/.npmrc || true
+            if npm publish --provenance --tag next --access public; then
+              echo "Successfully published ${DEV_VERSION} to npm via OIDC with tag 'next'"
+            else
+              echo "::error::npm publish failed. npmjs.com OIDC Trusted Publisher may be restricted to the 'main' branch. To enable PR releases, please add secret NPM_TOKEN in GitHub repository settings."
+              exit 1
+            fi
           fi
 
       - name: Dual Publish to GitHub Packages
