@@ -43,14 +43,30 @@ export class MermaidRenderer extends SdkMermaidRenderer {
     const hash = this.getHash(mermaidCode);
     const targetPath = this.getTargetPath(hash);
 
+    // Verify non-zero size cached file to prevent truncated or 0-byte cache lockups
     if (fs.existsSync(targetPath)) {
-      return targetPath;
+      try {
+        const stat = fs.statSync(targetPath);
+        if (stat.size > 0) {
+          return targetPath;
+        }
+        fs.unlinkSync(targetPath);
+      } catch {
+        // Continue to render if stat or unlink fails
+      }
     }
 
-    // Delegate to SDK renderer if it has been updated with sanitizeMermaid
+    // Prefer SDK renderer with try/catch fallback
     const sdkProto = SdkMermaidRenderer.prototype as unknown as { sanitizeMermaid?: (c: string) => string };
     if (typeof sdkProto.sanitizeMermaid === 'function') {
-      return super.renderToImage(mermaidCode);
+      try {
+        const sdkResult = await super.renderToImage(mermaidCode);
+        if (fs.existsSync(sdkResult) && fs.statSync(sdkResult).size > 0) {
+          return sdkResult;
+        }
+      } catch {
+        // Fall back to robust in-tree renderer if SDK throws
+      }
     }
 
     const sanitized = this.sanitizeMermaid(mermaidCode.trim());
@@ -75,16 +91,23 @@ export class MermaidRenderer extends SdkMermaidRenderer {
           const response = await axios.get(url, {
             responseType: isSvg ? 'text' : 'arraybuffer',
             timeout: 30000,
+            maxContentLength: 10 * 1024 * 1024,
+            maxRedirects: 5,
           });
 
           if (isSvg) {
             const svgBuffer = Buffer.from(response.data as string, 'utf8');
             await sharp(svgBuffer).png({ quality: 95 }).toFile(targetPath);
           } else {
-            fs.writeFileSync(targetPath, response.data as Buffer);
+            const rawData = response.data instanceof Buffer
+              ? response.data
+              : Buffer.from(response.data as ArrayBuffer);
+            fs.writeFileSync(targetPath, rawData);
           }
 
-          return targetPath;
+          if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0) {
+            return targetPath;
+          }
         } catch (err: unknown) {
           lastError = err as Error;
           if (attempt < 3) {
@@ -97,4 +120,3 @@ export class MermaidRenderer extends SdkMermaidRenderer {
     throw new Error(`Failed to render Mermaid diagram after retries: ${lastError?.message || 'Unknown error'}`);
   }
 }
-
