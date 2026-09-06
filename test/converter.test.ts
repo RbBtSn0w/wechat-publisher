@@ -14,11 +14,10 @@ test('neuterLinksToSpans leaves plain text untouched', () => {
   expect(neuterLinksToSpans(html)).toBe(html);
 });
 
-test('neuterLinksToSpans preserves mp.weixin.qq.com anchor links', () => {
-  const html = '<p>Read <a href="https://mp.weixin.qq.com/s/abcdef123456">related article</a> for details.</p>';
+test('neuterLinksToSpans preserves mp.weixin.qq.com anchor links and existing attributes', () => {
+  const html = '<p>Read <a href="https://mp.weixin.qq.com/s/abcdef123456" target="_blank" data-item="x">related article</a> for details.</p>';
   const result = neuterLinksToSpans(html);
 
-  expect(result).toContain('<a href="https://mp.weixin.qq.com/s/abcdef123456"');
-  expect(result).toContain('related article</a>');
+  expect(result).toBe(html);
 });
 
