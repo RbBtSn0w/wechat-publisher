@@ -137,6 +137,7 @@ jobs:
           else
             echo "gh_packages_published=false" >> "$GITHUB_OUTPUT"
             echo "::warning::GitHub Packages publish failed."
+            cat "$publish_log" >&2
           fi
 
       - name: Post or Update PR Comment
