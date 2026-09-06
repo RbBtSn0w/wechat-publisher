@@ -1,0 +1,26 @@
+name: Sync main to develop
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync:
+    name: Sync main back to develop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Merge main into develop
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-ff origin/main --no-edit -m "chore(repo): sync main to develop [skip ci]"
+          git push origin develop
