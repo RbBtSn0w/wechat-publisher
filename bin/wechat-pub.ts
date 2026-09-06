@@ -119,6 +119,7 @@ program
 program
   .command('publish-dir <dir>')
   .description('Publish a draft payload directory (one JSON + local images) to WeChat draft box')
+  .option('-a, --all', 'Publish all draft subdirectories found under the directory')
   .option('-d, --dry-run', 'Resolve placeholders and validate only; do not call WeChat API')
   .option('-c, --config <path>', 'Path to a custom configuration file', 'wechat.config.yml')
   .action(async (dir, options) => {

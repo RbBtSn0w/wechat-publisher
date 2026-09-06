@@ -13,3 +13,11 @@ test('neuterLinksToSpans leaves plain text untouched', () => {
   const html = '<p>No links here.</p>';
   expect(neuterLinksToSpans(html)).toBe(html);
 });
+
+test('neuterLinksToSpans preserves mp.weixin.qq.com anchor links and existing attributes', () => {
+  const html = '<p>Read <a href="https://mp.weixin.qq.com/s/abcdef123456" target="_blank" data-item="x">related article</a> for details.</p>';
+  const result = neuterLinksToSpans(html);
+
+  expect(result).toBe(html);
+});
+
