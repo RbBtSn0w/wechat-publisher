@@ -4,6 +4,15 @@ on:
   pull_request:
     branches:
       - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ci:
@@ -21,7 +30,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Lint
         run: npm run lint
@@ -31,3 +40,161 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Verify CLI
+        run: |
+          node dist/bin/wechat-pub.js --help
+          node dist/bin/wechat-pub.js -V
+          node dist/bin/wechat-pub.js --version
+
+  pr-dev-release:
+    name: PR Dev Preview Release
+    needs: ci
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'develop' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          registry-url: "https://registry.npmjs.org"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Calculate Dev Version
+        id: versioning
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          SHORT_SHA="${HEAD_SHA:0:7}"
+          BASE_VERSION="$(node -p 'require("./package.json").version.replace(/-.*$/, "")')"
+          DEV_VERSION="${BASE_VERSION}-dev.pr${PR_NUM}.${SHORT_SHA}"
+          npm version "${DEV_VERSION}" --no-git-tag-version --allow-same-version
+          echo "dev_version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm (next dist-tag)
+        id: npm_publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          DEV_VERSION="${{ steps.versioning.outputs.dev_version }}"
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "Publishing ${DEV_VERSION} to npm with NPM_TOKEN..."
+            if npm publish --tag next --access public; then
+              echo "npm_published=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "npm_published=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::npm publish with NPM_TOKEN failed."
+            fi
+          else
+            echo "NPM_TOKEN secret is not set; attempting OIDC provenance publish..."
+            sed -i.bak '/_authToken/d' ~/.npmrc || true
+            if npm publish --provenance --tag next --access public; then
+              echo "npm_published=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "npm_published=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::npm publish via OIDC rejected."
+            fi
+          fi
+
+      - name: Mirror to GitHub Packages
+        id: gh_packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          DEV_VERSION="${{ steps.versioning.outputs.dev_version }}"
+          publish_log="$(mktemp)"
+          cleanup() { rm -f .npmrc "$publish_log"; }
+          trap cleanup EXIT
+          OWNER_LOWER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "@${OWNER_LOWER}:registry=https://npm.pkg.github.com"
+            echo '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}'
+          } > .npmrc
+          if npm publish --registry https://npm.pkg.github.com --tag next 2> "$publish_log"; then
+            echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gh_packages_published=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GitHub Packages publish failed."
+          fi
+
+      - name: Post or Update PR Comment
+        if: steps.npm_publish.outputs.npm_published == 'true' || steps.gh_packages.outputs.gh_packages_published == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const pkgName = pkg.name || 'pkg';
+            const devVersion = '${{ steps.versioning.outputs.dev_version }}';
+            const npmPublished = '${{ steps.npm_publish.outputs.npm_published }}' === 'true';
+            const ghPublished = '${{ steps.gh_packages.outputs.gh_packages_published }}' === 'true';
+
+            const commentHeader = '### 🚀 PR Dev Preview Released';
+            const registries = [];
+            if (npmPublished) {
+              registries.push(`| **npm** | \`${pkgName}@${devVersion}\` | \`next\` |`);
+            }
+            if (ghPublished) {
+              registries.push(`| **GitHub Packages** | \`${pkgName}@${devVersion}\` | \`next\` |`);
+            }
+
+            const body = [
+              commentHeader,
+              '',
+              'A temporary development build has been published for testing and acceptance verification:',
+              '',
+              '| Registry | Package / Version | Dist-tag |',
+              '| :--- | :--- | :--- |',
+              ...registries,
+              '',
+              '#### 🛠️ Quick Verification Options',
+              '```bash',
+              `npx --yes ${pkgName}@${devVersion} --version`,
+              '```',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c => c.user && c.user.type === 'Bot' && c.body && c.body.includes(commentHeader));
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

@@ -1,43 +1,67 @@
 name: Release
+
 on:
   push:
     branches:
       - main
+      - develop
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  packages: write
+  id-token: write
+
 jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      packages: write
-      id-token: write # 某些 npm 发布验证需要
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "lts/*"
+          cache: "npm"
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint and Test
+        run: |
+          npm run lint
+          npm run test
+
       - name: Build
         run: npm run build
+
       - name: Semantic Release
         id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release@25
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx --yes semantic-release@25
+
       - name: Dual Publish to GitHub Packages
-        # 这里尝试直接发布。如果 semantic-release 没有更新版本，
-        # npm publish 会因为版本冲突报错，我们用 || true 容错，
-        # 或者您可以根据需求决定是否需要强制停止。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          # 检查 package.json 是否有版本变动（或者简单尝试发布）
-          echo "@rbbtsn0w:registry=https://npm.pkg.github.com" > .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
-          # 尝试发布到 GitHub，如果版本已存在则跳过，不标记为失败
-          npm publish --registry https://npm.pkg.github.com || echo "GitHub Packages: Version already exists or nothing to publish."
+          publish_log="$(mktemp)"
+          cleanup() { rm -f .npmrc "$publish_log"; }
+          trap cleanup EXIT
+          OWNER_LOWER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "@${OWNER_LOWER}:registry=https://npm.pkg.github.com"
+            echo '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}'
+          } > .npmrc
+          npm publish --registry https://npm.pkg.github.com 2> "$publish_log" || echo "GitHub Packages: Version already exists or nothing to publish."
