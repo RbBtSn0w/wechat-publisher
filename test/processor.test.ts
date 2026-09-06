@@ -89,6 +89,54 @@ test('processPostWithReport fails instead of silently dropping a missing image',
   fs.unlinkSync(filePath);
 });
 
+test('processPostWithReport renders through the shared SDK engine while preserving the legacy theme', async () => {
+  const filePath = makePost('This is a **bold** paragraph.\n\n- Item 1\n- Item 2');
+  const result = await processPostWithReport(filePath, config);
+
+  // The legacy WeChat-green styling is registered under a publisher-specific
+  // name, so switching engines is invisible without replacing SDK defaults.
+  expect(result.post.contentHtml).toContain('#07c160');
+  expect(result.post.contentHtml).not.toContain('#0f4c81'); // SDK's own tech theme blue
+  fs.unlinkSync(filePath);
+});
+
+test('processPostWithReport retains legacy styling for unsupported style names', async () => {
+  const filePath = makePost('# Title');
+  const result = await processPostWithReport(filePath, { ...config, style: 'custom' });
+
+  // The old publisher only had one legacy theme even when config.style was set.
+  expect(result.post.contentHtml).toContain('#07c160');
+  expect(result.post.contentHtml).not.toContain('#0f4c81');
+  fs.unlinkSync(filePath);
+});
+
+test('processPostWithReport does not warn about local image paths in dry-run (no uploader)', async () => {
+  const downloaded = path.join(os.tmpdir(), `wechat-dryrun-${Date.now()}.png`);
+  fs.writeFileSync(downloaded, 'image');
+  const filePath = makePost('![remote](https://example.com/image.png)', 'title: Test\narticle_type: newspic');
+
+  const result = await processPostWithReport(filePath, config, undefined, {
+    remoteImageDownloader: { download: async () => downloaded },
+  });
+
+  // Dry-run (no uploader) intentionally leaves the local downloaded path in
+  // place for preview; the SDK's resolveImage-oriented diagnostic must not
+  // leak through since wechat-publisher never uses that hook.
+  expect(result.post.contentMarkdown).toContain(downloaded);
+  expect(result.diagnostics.some((d) => d.code === 'LOCAL_IMAGE_UNRESOLVED')).toBe(false);
+  fs.unlinkSync(filePath);
+  fs.unlinkSync(downloaded);
+});
+
+test('processPostWithReport still neuters external links into styled spans', async () => {
+  const filePath = makePost('See [the docs](https://example.com/docs) for more.');
+  const result = await processPostWithReport(filePath, config);
+
+  expect(result.post.contentHtml).not.toContain('<a ');
+  expect(result.post.contentHtml).toContain('<span style="color: #576b95; text-decoration: underline;">the docs</span>');
+  fs.unlinkSync(filePath);
+});
+
 test('processPostWithReport validates a news cover before rendering or uploading assets', async () => {
   const filePath = makePost('Formula: $E=mc^2$\n\n![image](/assets/image.png)');
   let formulaCalls = 0;

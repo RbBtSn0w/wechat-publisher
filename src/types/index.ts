@@ -1,6 +1,7 @@
-export type WeChatArticleType = 'news' | 'newspic';
+import type { DiagnosticSeverity } from '@rbbtsn0w/wechat-markdown';
+export type { DiagnosticSeverity };
 
-export type DiagnosticSeverity = 'warning' | 'error';
+export type WeChatArticleType = 'news' | 'newspic';
 
 export interface ConversionDiagnostic {
   code: string;

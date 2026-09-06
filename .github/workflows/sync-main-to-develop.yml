@@ -22,5 +22,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git merge origin/main --no-edit -m "chore(repo): sync main to develop [skip ci]"
+          git merge --no-ff origin/main --no-edit -m "chore(repo): sync main to develop [skip ci]"
           git push origin develop

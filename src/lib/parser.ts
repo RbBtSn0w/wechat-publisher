@@ -1,4 +1,3 @@
-import { marked } from 'marked';
 import yaml from 'yaml';
 import fs from 'fs';
 import { BlogPost, ConversionDiagnostic, WeChatArticleType } from '../types';
@@ -45,10 +44,6 @@ export function parseMarkdown(filePath: string): Partial<BlogPost> {
     articleType,
     originalPath: filePath,
   };
-}
-
-export function convertMarkdownToHtml(markdown: string): string {
-  return marked.parse(markdown, { async: false }) as string;
 }
 
 export function normalizeJekyllMarkdown(markdown: string): string {
