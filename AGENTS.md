@@ -40,6 +40,7 @@ All agents MUST adhere to the principles, boundaries, and workflows defined here
 - **Preserve `[skip ci]` on Sync**: The reverse sync workflow (`sync-main-to-develop.yml`) MUST use `git merge --no-ff origin/main` so that fast-forward merges do not discard `-m "... [skip ci]"`, preventing infinite CI loops.
 - **No Swallowed Logs**: Whenever an automated publish step redirects stderr to a temporary log (e.g. `$publish_log`), failure branches MUST emit `cat "$publish_log" >&2` to preserve diagnostics.
 - **Unambiguous Cron Times**: Workflow cron expressions must be accompanied by explicit Beijing time (UTC+8) comments (e.g. `# Every Friday at 15:00 Beijing time (UTC+8) -> 07:00 UTC`).
+- **No Direct Secret Access in Step Conditions**: Never reference `secrets.*` directly inside step-level `if:` conditions. Pass secrets via `env:` and check presence inside the shell runner (e.g. `if [ -z "$MY_SECRET" ]; then exit 0; fi`).
 
 ### Local Pre-Flight Checklist
 Before committing or proposing any code changes, agents MUST run:
