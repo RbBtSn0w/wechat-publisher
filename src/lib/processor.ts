@@ -296,7 +296,7 @@ export async function processPostWithReport(
     renderMermaid: false,
     footnoteLinks: false,
     gfmAlerts: false,
-    macCodeBlock: false,
+    macCodeBlock: true,
     tableScroller: false,
   });
   // LOCAL_IMAGE_UNRESOLVED assumes the caller relies on the SDK's own
