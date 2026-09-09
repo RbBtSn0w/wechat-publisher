@@ -32,8 +32,17 @@ export function loadConfig(
     ymlConfig = yaml.parse(fileContents) || {};
   }
 
+  const envSecret = process.env.WECHAT_APP_SECRET || process.env.APP_SECRET;
+  if (envSecret && ymlConfig.appSecret && envSecret !== ymlConfig.appSecret) {
+    console.warn(
+      '⚠️ Notice: WECHAT_APP_SECRET from environment variable differs from config file (' +
+        path.basename(fullPath) +
+        ') and will take precedence. If you recently updated the config file, update or unset your environment variable.'
+    );
+  }
+
   const appId = process.env.WECHAT_APP_ID || process.env.APP_ID || ymlConfig.appId;
-  const appSecret = process.env.WECHAT_APP_SECRET || process.env.APP_SECRET || ymlConfig.appSecret;
+  const appSecret = envSecret || ymlConfig.appSecret;
 
   if (options.requireCredentials !== false && (!appId || !appSecret)) {
     throw new Error('Missing WeChat AppID or AppSecret. Please set WECHAT_APP_ID and WECHAT_APP_SECRET in your .env file or environment variables.');

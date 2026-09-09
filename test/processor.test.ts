@@ -161,3 +161,14 @@ test('processPostWithReport validates a news cover before rendering or uploading
   expect(uploadCalls).toBe(0);
   fs.unlinkSync(filePath);
 });
+
+test('processPostWithReport renders code blocks with macCodeBlock decoration and white-space: pre', async () => {
+  const filePath = makePost('```typescript\nconst message = "hello";\nconsole.log(message);\n```', 'title: Code Test\narticle_type: newspic');
+  const result = await processPostWithReport(filePath, config);
+
+  expect(result.post.contentHtml).toContain('TYPESCRIPT');
+  expect(result.post.contentHtml).toContain('white-space: pre');
+  expect(result.post.contentHtml).toContain('overflow-x: auto');
+  expect(result.post.contentHtml).toContain('word-break: normal');
+  fs.unlinkSync(filePath);
+});
