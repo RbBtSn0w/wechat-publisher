@@ -32,16 +32,27 @@ export function loadConfig(
     ymlConfig = yaml.parse(fileContents) || {};
   }
 
-  const envSecret = process.env.WECHAT_APP_SECRET || process.env.APP_SECRET;
+  const envSecretKey = process.env.WECHAT_APP_SECRET ? 'WECHAT_APP_SECRET' : process.env.APP_SECRET ? 'APP_SECRET' : undefined;
+  const envSecret = envSecretKey ? process.env[envSecretKey] : undefined;
   if (envSecret && ymlConfig.appSecret && envSecret !== ymlConfig.appSecret) {
     console.warn(
-      '⚠️ Notice: WECHAT_APP_SECRET from environment variable differs from config file (' +
+      `⚠️ Notice: ${envSecretKey} from environment variable differs from config file (` +
         path.basename(fullPath) +
         ') and will take precedence. If you recently updated the config file, update or unset your environment variable.'
     );
   }
 
-  const appId = process.env.WECHAT_APP_ID || process.env.APP_ID || ymlConfig.appId;
+  const envIdKey = process.env.WECHAT_APP_ID ? 'WECHAT_APP_ID' : process.env.APP_ID ? 'APP_ID' : undefined;
+  const envId = envIdKey ? process.env[envIdKey] : undefined;
+  if (envId && ymlConfig.appId && envId !== ymlConfig.appId) {
+    console.warn(
+      `⚠️ Notice: ${envIdKey} from environment variable differs from config file (` +
+        path.basename(fullPath) +
+        ') and will take precedence. If you recently updated the config file, update or unset your environment variable.'
+    );
+  }
+
+  const appId = envId || ymlConfig.appId;
   const appSecret = envSecret || ymlConfig.appSecret;
 
   if (options.requireCredentials !== false && (!appId || !appSecret)) {
