@@ -6,8 +6,9 @@ export const techTheme = `
   .markdown-body p { margin-bottom: 1.2em; text-align: justify; }
   .markdown-body blockquote { border-left: 4px solid #07c160; background-color: #f8f8f8; padding: 15px; margin: 1.5em 0; border-radius: 8px; color: #555; }
   .markdown-body blockquote p { margin-bottom: 0; font-size: 14px; }
-  .markdown-body pre { background-color: #282c34; color: #abb2bf; padding: 15px; overflow-x: auto; border-radius: 8px; line-height: 1.45; margin: 1.5em 0; }
+  .markdown-body pre { background-color: #282c34; color: #abb2bf; padding: 14px 16px; border-radius: 8px; line-height: 1.55; margin: 1.5em 0; overflow-x: auto; white-space: pre !important; word-break: normal !important; word-wrap: normal !important; display: block !important; -webkit-overflow-scrolling: touch; }
   .markdown-body code { font-family: "Fira Code", Consolas, Monaco, monospace; font-size: 0.9em; }
+  .markdown-body pre code { background-color: transparent !important; color: inherit !important; padding: 0 !important; border: none !important; font-size: inherit !important; display: block !important; white-space: pre !important; word-break: normal !important; word-wrap: normal !important; }
   .markdown-body p code { color: #e91e63; background-color: rgba(233, 30, 99, 0.05); padding: 2px 4px; border-radius: 4px; }
   .markdown-body a { color: #576b95; text-decoration: none; font-weight: bold; border-bottom: 1px solid #576b95; }
   .markdown-body strong { color: #07c160; }

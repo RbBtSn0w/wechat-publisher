@@ -64,4 +64,7 @@ jobs:
             echo "@${OWNER_LOWER}:registry=https://npm.pkg.github.com"
             echo '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}'
           } > .npmrc
-          npm publish --registry https://npm.pkg.github.com 2> "$publish_log" || echo "GitHub Packages: Version already exists or nothing to publish."
+          npm publish --registry https://npm.pkg.github.com 2> "$publish_log" || {
+            echo "GitHub Packages: Version already exists or nothing to publish."
+            cat "$publish_log" >&2
+          }

@@ -96,6 +96,29 @@ test('extracts and replaces Mermaid blocks with common fence variants', () => {
   expect(result).not.toContain('~~~');
 });
 
+test('replaceMermaidBlocks preserves paragraph isolation when followed by horizontal rule', () => {
+  const md = [
+    '## Section Header',
+    '',
+    '```mermaid',
+    'flowchart TD',
+    '  A --> B',
+    '```',
+    '',
+    '---',
+    '',
+    '## Next Section',
+  ].join('\n');
+
+  const blocks = extractMermaidBlocks(md);
+  const result = replaceMermaidBlocks(md, {
+    [blocks[0]]: '![diagram](https://mmbiz.qpic.cn/diagram.png)',
+  });
+
+  // Verify there is a clear blank line before the horizontal rule
+  expect(result).toMatch(/!\[diagram\]\(https:\/\/mmbiz\.qpic\.cn\/diagram\.png\)\s*\n\n---/);
+});
+
 test('extracts image paths with titles, angle brackets, and reordered HTML attributes', () => {
   const md = [
     '![alt](/assets/cover.png "Cover")',

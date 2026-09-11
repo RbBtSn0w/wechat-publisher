@@ -41,11 +41,17 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify CLI
+      - name: Verify CLI and Update Command
         run: |
           node dist/bin/wechat-pub.js --help
+          node dist/bin/wechat-pub.js -v
           node dist/bin/wechat-pub.js -V
           node dist/bin/wechat-pub.js --version
+          node dist/bin/wechat-pub.js update --help
+          node dist/bin/wechat-pub.js update --dry-run
+          node dist/bin/wechat-pub.js update --beta --dry-run
+          node dist/bin/wechat-pub.js update --dev --dry-run
+          node dist/bin/wechat-pub.js update --tag canary --dry-run
 
   pr-dev-release:
     name: PR Dev Preview Release
@@ -137,6 +143,7 @@ jobs:
           else
             echo "gh_packages_published=false" >> "$GITHUB_OUTPUT"
             echo "::warning::GitHub Packages publish failed."
+            cat "$publish_log" >&2
           fi
 
       - name: Post or Update PR Comment
@@ -172,6 +179,10 @@ jobs:
               '',
               '#### 🛠️ Quick Verification Options',
               '```bash',
+              `# Upgrade using wechat-pub update:`,
+              `wechat-pub update --dev`,
+              '',
+              `# Or verify exact version via npx:`,
               `npx --yes ${pkgName}@${devVersion} --version`,
               '```',
             ].join('\n');

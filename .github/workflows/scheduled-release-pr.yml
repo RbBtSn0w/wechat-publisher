@@ -67,14 +67,24 @@ jobs:
 
           echo "Release PR #${pr} ready."
 
-          # Enable native GitHub auto-merge (idempotent if already enabled on existing PR)
-          echo "Enabling auto-merge on PR #${pr}..."
-          if ! gh pr merge "$pr" --auto --merge 2>&1 | tee /tmp/merge.log; then
-            if grep -Eqi "already|pull request is already" /tmp/merge.log; then
-              echo "Auto-merge already active on PR #${pr}."
-            else
-              echo "Failed to enable auto-merge on PR #${pr}." >&2
-              exit 1
+          if [ "${HAS_CUSTOM_TOKEN}" = "true" ]; then
+            # Enable native GitHub auto-merge (idempotent if already enabled on existing PR)
+            echo "Enabling auto-merge on PR #${pr}..."
+            if ! gh pr merge "$pr" --auto --merge 2>&1 | tee /tmp/merge.log; then
+              if grep -Eqi "already|pull request is already" /tmp/merge.log; then
+                echo "Auto-merge already active on PR #${pr}."
+              else
+                echo "Failed to enable auto-merge on PR #${pr}." >&2
+                exit 1
+              fi
             fi
+            echo "Auto-merge configured for PR #${pr}."
+          else
+            # GitHub's enablePullRequestAutoMerge requires the base branch to have a
+            # required-check/review rule to queue against; `main` has none, and even if it
+            # did, a PR opened with GITHUB_TOKEN never gets a pull_request CI run to satisfy
+            # it. Merge directly instead of leaving the PR stuck on a check that can't fire.
+            echo "No release-bot token available; merging PR #${pr} directly (auto-merge would stall)."
+            gh pr merge "$pr" --merge
+            echo "PR #${pr} merged."
           fi
-          echo "Auto-merge configured for PR #${pr}."

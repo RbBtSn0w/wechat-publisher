@@ -1,4 +1,3 @@
-import { marked } from 'marked';
 import yaml from 'yaml';
 import fs from 'fs';
 import { BlogPost, ConversionDiagnostic, WeChatArticleType } from '../types';
@@ -45,10 +44,6 @@ export function parseMarkdown(filePath: string): Partial<BlogPost> {
     articleType,
     originalPath: filePath,
   };
-}
-
-export function convertMarkdownToHtml(markdown: string): string {
-  return marked.parse(markdown, { async: false }) as string;
 }
 
 export function normalizeJekyllMarkdown(markdown: string): string {
@@ -236,5 +231,9 @@ export function extractMermaidBlocks(markdown: string): string[] {
 
 export function replaceMermaidBlocks(markdown: string, replacements: Record<string, string>): string {
   const regex = /^( {0,3})(`{3,}|~{3,})[ \t]*mermaid(?:[ \t]+[^\r\n]*)?[ \t]*\r?\n([\s\S]*?)^\1\2[ \t]*(?:\r?\n|$)/gim;
-  return markdown.replace(regex, (match, _indent, _fence, code) => replacements[code.trim()] || match);
+  return markdown.replace(regex, (match, _indent, _fence, code) => {
+    const replacement = replacements[code.trim()];
+    if (!replacement) return match;
+    return `\n\n${replacement.trim()}\n\n`;
+  });
 }

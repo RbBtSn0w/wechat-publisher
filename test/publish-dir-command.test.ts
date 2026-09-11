@@ -76,3 +76,50 @@ test('publish-dir reports a missing API client before attempting to add a draft'
 
   expect(errors.join('\n')).toMatch(/WeChat API client is required/);
 });
+
+test('publish-dir --all dry-runs multiple draft subdirectories', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-pub-batch-'));
+  const d1 = path.join(root, '01-first');
+  const d2 = path.join(root, '02-second');
+  fs.mkdirSync(d1);
+  fs.mkdirSync(d2);
+  fs.writeFileSync(path.join(d1, 'img1.png'), 'img');
+  fs.writeFileSync(path.join(d2, 'img2.png'), 'img');
+
+  fs.writeFileSync(
+    path.join(d1, 'draft.json'),
+    JSON.stringify({
+      articles: [
+        {
+          article_type: 'newspic',
+          content: 'd1',
+          image_info: { image_list: [{ image_media_id: 'local://img1.png' }] },
+        },
+      ],
+    })
+  );
+  fs.writeFileSync(
+    path.join(d2, 'draft.json'),
+    JSON.stringify({
+      articles: [
+        {
+          article_type: 'newspic',
+          content: 'd2',
+          image_info: { image_list: [{ image_media_id: 'local://img2.png' }] },
+        },
+      ],
+    })
+  );
+
+  const logs: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation(msg => logs.push(String(msg)));
+  const exitSpy = vi.spyOn(process, 'exit').mockImplementation(code => {
+    throw new Error(`process.exit(${code})`);
+  });
+
+  await publishDirCommand(root, { all: true, dryRun: true, config: 'missing.yml' });
+
+  expect(exitSpy).not.toHaveBeenCalled();
+  expect(logs.join('\n')).toContain('Batch completed: 2 / 2 drafts processed successfully.');
+});
+

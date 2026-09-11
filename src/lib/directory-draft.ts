@@ -185,6 +185,45 @@ async function resolveNewspicArticle(
   }
 }
 
+export function discoverDraftDirectories(directory: string): string[] {
+  const targetDir = path.resolve(directory);
+  if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {
+    throw new Error(`Directory not found: ${targetDir}`);
+  }
+
+  const jsonFiles = fs
+    .readdirSync(targetDir)
+    .filter(file => file.toLowerCase().endsWith('.json'));
+
+  if (jsonFiles.length === 1) {
+    return [targetDir];
+  }
+
+  const subdirs = fs
+    .readdirSync(targetDir)
+    .map(name => path.join(targetDir, name))
+    .filter(fullPath => {
+      try {
+        return fs.statSync(fullPath).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .filter(subDir => {
+      try {
+        const jsons = fs
+          .readdirSync(subDir)
+          .filter(f => f.toLowerCase().endsWith('.json'));
+        return jsons.length === 1;
+      } catch {
+        return false;
+      }
+    })
+    .sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'en', { numeric: true }));
+
+  return subdirs;
+}
+
 export function readDraftPayloadFromDirectory(directory: string): DraftPayload {
   const targetDir = path.resolve(directory);
   if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {

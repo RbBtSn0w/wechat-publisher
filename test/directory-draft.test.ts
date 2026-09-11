@@ -3,7 +3,11 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { ResourceCache } from '../src/lib/cache';
-import { readDraftPayloadFromDirectory, resolveDraftPayloadMedia } from '../src/lib/directory-draft';
+import {
+  discoverDraftDirectories,
+  readDraftPayloadFromDirectory,
+  resolveDraftPayloadMedia,
+} from '../src/lib/directory-draft';
 
 function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-pub-draft-'));
@@ -106,3 +110,20 @@ test('resolveDraftPayloadMedia enforces news thumb_media_id', async () => {
     })
   ).rejects.toThrow(/thumb_media_id/);
 });
+
+test('discoverDraftDirectories finds single directory or subdirectories', () => {
+  const root = makeTempDir();
+  const sub1 = path.join(root, '01-draft');
+  const sub2 = path.join(root, '02-draft');
+  fs.mkdirSync(sub1);
+  fs.mkdirSync(sub2);
+  fs.writeFileSync(path.join(sub1, 'draft.json'), '{"articles":[]}');
+  fs.writeFileSync(path.join(sub2, 'draft.json'), '{"articles":[]}');
+
+  const dirs = discoverDraftDirectories(root);
+  expect(dirs).toEqual([sub1, sub2]);
+
+  // If pointing to sub1 directly, returns [sub1]
+  expect(discoverDraftDirectories(sub1)).toEqual([sub1]);
+});
+
