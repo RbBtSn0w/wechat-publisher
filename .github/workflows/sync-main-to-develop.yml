@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -21,6 +22,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git merge --no-ff origin/main --no-edit -m "chore(repo): sync main to develop [skip ci]"
-          git push origin develop
+          git fetch origin main develop
+          git checkout -B develop origin/develop
+          if [ "$(git rev-list --count develop..origin/main)" -gt 0 ]; then
+            echo "Syncing main back into develop..."
+            git merge --no-ff origin/main --no-edit -m "chore(repo): sync main to develop [skip ci]"
+            git push origin develop
+          else
+            echo "develop is already up to date with main."
+          fi

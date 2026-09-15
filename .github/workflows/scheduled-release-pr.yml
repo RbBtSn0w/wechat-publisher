@@ -55,14 +55,38 @@ jobs:
 
           echo "develop is ${ahead} commit(s) ahead of main."
 
+          # A `Fixes #NNN` in a feature PR only auto-closes when *that* PR merges into the
+          # default branch. Feature PRs merge into develop, so the keyword does nothing there;
+          # restate it here so the issue closes when this promotion PR reaches main.
+          closing_refs=""
+          for sha in $(git rev-list origin/main..origin/develop); do
+            pr_number="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/pulls" \
+              --jq '.[0].number' 2>/dev/null || true)"
+            [ -n "$pr_number" ] || continue
+            body="$(gh pr view "$pr_number" --json body --jq '.body' 2>/dev/null || true)"
+            refs="$(printf '%s' "$body" \
+              | grep -Eio '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#[0-9]+([[:space:],]+#[0-9]+)*' \
+              | grep -Eo '#[0-9]+' || true)"
+            closing_refs="${closing_refs}${refs}"$'\n'
+          done
+          closing_refs="$(printf '%s' "$closing_refs" | grep -Eo '#[0-9]+' | sort -u -t'#' -k2 -n)"
+
+          body=$'### 📦 Scheduled Stable Release\n\nAutomated weekly release promotion from `develop` to `main`.\n\n- Auto-merge is enabled.\n- Once CI passes and checks are green, GitHub will automatically merge this PR.\n- Merging into `main` triggers stable release publishing.'
+          if [ -n "${closing_refs}" ]; then
+            body="${body}"$'\n\n'"$(printf '%s\n' "${closing_refs}" | sed 's/^/Closes /')"
+          fi
+
           # Look for existing open PR from develop to main
           pr="$(gh pr list --base main --head develop --state open --json number --jq '.[0].number' 2>/dev/null || true)"
           if [ -z "$pr" ]; then
             echo "Creating release promotion PR (develop -> main)..."
             gh pr create --base main --head develop \
               --title "chore(release): promote develop to stable" \
-              --body $'### 📦 Scheduled Stable Release\n\nAutomated weekly release promotion from `develop` to `main`.\n\n- Auto-merge is enabled.\n- Once CI passes and checks are green, GitHub will automatically merge this PR.\n- Merging into `main` triggers stable release publishing.'
+              --body "${body}"
             pr="$(gh pr list --base main --head develop --state open --json number --jq '.[0].number')"
+          else
+            echo "Refreshing promotion PR #${pr} body in case new commits queued up..."
+            gh pr edit "$pr" --body "${body}"
           fi
 
           echo "Release PR #${pr} ready."
