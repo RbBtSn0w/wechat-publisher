@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
@@ -68,3 +69,18 @@ jobs:
             echo "GitHub Packages: Version already exists or nothing to publish."
             cat "$publish_log" >&2
           }
+
+      - name: Sync main to develop
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main develop
+          git checkout -B develop origin/develop
+          if [ "$(git rev-list --count develop..origin/main)" -gt 0 ]; then
+            echo "Syncing main back into develop..."
+            git merge --no-ff origin/main --no-edit -m "chore(repo): sync main to develop [skip ci]"
+            git push origin develop
+          else
+            echo "develop is already up to date with main."
+          fi
