@@ -52,10 +52,22 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
       const localMatches = sourceContent.match(/local:\/\/[^\s"'<>]+/g) || [];
       for (const placeholder of Array.from(new Set(localMatches))) {
         const localFile = resolveLocalFile(fullPath, placeholder);
+        const ext = path.extname(localFile).toLowerCase().replace(/^\./, '');
+        const mimeMap: Record<string, string> = {
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          png: 'image/png',
+          webp: 'image/webp',
+          gif: 'image/gif',
+          svg: 'image/svg+xml',
+          bmp: 'image/bmp',
+        };
+        const mimeType = mimeMap[ext];
+        if (!mimeType) {
+          throw new Error(`Unsupported image format ".${ext}" for local placeholder "${placeholder}".`);
+        }
         let replacement = localFile;
         try {
-          const ext = path.extname(localFile).toLowerCase().replace(/^\./, '');
-          const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
           const base64Data = fs.readFileSync(localFile).toString('base64');
           replacement = `data:${mimeType};base64,${base64Data}`;
         } catch {

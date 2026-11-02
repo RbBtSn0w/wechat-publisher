@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { escapeHtml, neuterLinksToSpans, normalizeLinksAndFootnotes } from '../src/lib/converter';
+import { decodeHtmlEntities, escapeHtml, neuterLinksToSpans, normalizeLinksAndFootnotes } from '../src/lib/converter';
 
 test('neuterLinksToSpans converts anchor tags into styled, non-interactive spans', () => {
   const html = '<p>See <a href="https://example.com/docs">the docs</a> for more.</p>';
@@ -56,6 +56,10 @@ test('normalizeLinksAndFootnotes decodes pre-encoded HTML entities in links and 
   expect(result.html).toContain('https://example.com/search?a=1&amp;b=2');
   expect(result.html).not.toContain('&amp;amp;');
   expect(result.html).toContain('A &amp; B');
+
+  // Verify single-pass decoding: &amp;lt; should decode to &lt; and NOT to <
+  expect(decodeHtmlEntities('&amp;lt;')).toBe('&lt;');
+  expect(decodeHtmlEntities('&amp;gt;')).toBe('&gt;');
 });
 
 test('normalizeLinksAndFootnotes dedupes repeated URLs', () => {

@@ -108,6 +108,59 @@ let url = "local://inside-code.png"
     );
   });
 
+  it('rejects external symlink target in draft.json local:// placeholder (canonical containment)', async () => {
+    const draftDir = path.join(tmpDir, 'symlink-draft');
+    fs.mkdirSync(draftDir);
+
+    const outsideFile = path.join(tmpDir, 'outside-secret.png');
+    fs.writeFileSync(outsideFile, 'secret');
+
+    const symlinkPath = path.join(draftDir, 'symlink.png');
+    fs.symlinkSync(outsideFile, symlinkPath);
+
+    fs.writeFileSync(
+      path.join(draftDir, 'draft.json'),
+      JSON.stringify({
+        articles: [
+          {
+            article_type: 'news',
+            title: 'Symlink Draft',
+            thumb_media_id: 'local://symlink.png',
+            content: '<p>Hello</p>',
+          },
+        ],
+      })
+    );
+
+    await expect(exportCommand(draftDir, { strict: true })).rejects.toThrow(
+      /Local placeholder targets file outside directory/
+    );
+  });
+
+  it('throws an error when local body image has unsupported format', async () => {
+    const draftDir = path.join(tmpDir, 'bad-format-draft');
+    fs.mkdirSync(draftDir);
+
+    fs.writeFileSync(path.join(draftDir, 'image.xyz'), 'xyz-data');
+    fs.writeFileSync(
+      path.join(draftDir, 'draft.json'),
+      JSON.stringify({
+        articles: [
+          {
+            article_type: 'news',
+            title: 'Bad Format Draft',
+            thumb_media_id: 'local://image.xyz',
+            content: '<p><img src="local://image.xyz"></p>',
+          },
+        ],
+      })
+    );
+
+    await expect(exportCommand(draftDir, { strict: false })).rejects.toThrow(
+      /Unsupported image format "\.xyz"/
+    );
+  });
+
   it('throws when strict mode encounters unresolved TODO placeholders in prose', async () => {
     const mdFile = path.join(tmpDir, 'todo.md');
     fs.writeFileSync(

@@ -61,6 +61,14 @@ export function resolveLocalFile(directory: string, placeholder: string): string
     throw new Error(`Referenced local file not found: ${absPath}`);
   }
 
+  // Canonical path containment: verify symlink target does not escape baseDir
+  const realBaseDir = fs.realpathSync(baseDir);
+  const realFilePath = fs.realpathSync(absPath);
+  const realRel = path.relative(realBaseDir, realFilePath);
+  if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
+    throw new Error(`Local placeholder targets file outside directory: "${placeholder}".`);
+  }
+
   return absPath;
 }
 
