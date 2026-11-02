@@ -6,6 +6,11 @@ import os from 'os';
 import sharp from 'sharp';
 
 describe('validatePlaceholderText', () => {
+  it('does not match inline code across separate Markdown blocks', () => {
+    for (const content of ['` unmatched opener\n\n[TODO: finish]\n\nclosing `', '` unmatched\n# [TODO: heading]\nclosing `']) {
+      expect(validatePlaceholderText(content)).toHaveLength(1);
+    }
+  });
   it('detects unresolved TODO and placeholder patterns with line numbers', () => {
     const content = `Line 1: Hello
 Line 2: [TODO: Add diagram]
@@ -114,4 +119,9 @@ describe('runPreflightCheck', () => {
     expect(result.passed).toBe(false);
     expect(result.issues.some(i => i.severity === 'error')).toBe(true);
   });
+});
+
+it('preserves prose on HTML closing lines and requires whitespace-only fence closure', () => {
+  const source = ['````md', '````not-close', '[TODO: example]', '````', '<code>', '[TODO: example]', '</code> [TODO: real]', '``[TODO: example] ` x``'].join('\n');
+  expect(validatePlaceholderText(source)).toEqual([expect.objectContaining({ line: 7, severity: 'error' })]);
 });

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { normalizeJekyllMarkdown, parseMarkdown } from '../lib/parser';
+import { normalizeJekyllMarkdown, parseMarkdown, extractImagePaths, replaceImagePaths } from '../lib/parser';
+import { readPortableImage, resolveContainedFile } from '../lib/media';
 import { renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
 import { LEGACY_THEME_NAME } from '../lib/theme-registry';
 import { normalizeLinksAndFootnotes } from '../lib/converter';
@@ -29,9 +30,11 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
   let isPreRenderedHtml = false;
   let sourceContent = '';
   let coverPath: string | undefined;
+  let mediaBaseDir = path.dirname(fullPath);
 
   const stat = fs.statSync(fullPath);
   if (stat.isDirectory()) {
+    mediaBaseDir = fullPath;
     // Draft directory mode: check if a single JSON draft payload exists
     const jsonFiles = fs
       .readdirSync(fullPath)
@@ -48,33 +51,6 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
         coverPath = resolveLocalFile(fullPath, rawThumb);
       }
 
-      // Replace local:// image placeholders in HTML with portable data: URLs or fallback file paths for offline export
-      const localMatches = sourceContent.match(/local:\/\/[^\s"'<>]+/g) || [];
-      for (const placeholder of Array.from(new Set(localMatches))) {
-        const localFile = resolveLocalFile(fullPath, placeholder);
-        const ext = path.extname(localFile).toLowerCase().replace(/^\./, '');
-        const mimeMap: Record<string, string> = {
-          jpg: 'image/jpeg',
-          jpeg: 'image/jpeg',
-          png: 'image/png',
-          webp: 'image/webp',
-          gif: 'image/gif',
-          svg: 'image/svg+xml',
-          bmp: 'image/bmp',
-        };
-        const mimeType = mimeMap[ext];
-        if (!mimeType) {
-          throw new Error(`Unsupported image format ".${ext}" for local placeholder "${placeholder}".`);
-        }
-        let replacement = localFile;
-        try {
-          const base64Data = fs.readFileSync(localFile).toString('base64');
-          replacement = `data:${mimeType};base64,${base64Data}`;
-        } catch {
-          // If reading fails, keep the local file path as fallback
-        }
-        sourceContent = sourceContent.split(placeholder).join(replacement);
-      }
     } else {
       const mdCandidates = ['index.md', 'README.md', 'post.md'];
       const found = mdCandidates.find(f => fs.existsSync(path.join(fullPath, f)));
@@ -111,6 +87,20 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
   if (!sourceContent.trim()) {
     throw new Error(`No content found to export from ${targetPath}`);
   }
+
+  const replacements: Record<string, string> = {};
+  for (const resource of extractImagePaths(sourceContent)) {
+    if (/^(?:https?:|data:|\/\/)/i.test(resource)) continue;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(resource) && !resource.startsWith('local://')) {
+      throw new Error(`Unsupported local image URI: ${resource}`);
+    }
+    const local = parseLocalPlaceholder(resource);
+    const base = !local && resource.startsWith('/') ? process.cwd() : mediaBaseDir;
+    const relative = local ? resource.slice('local://'.length) : resource.replace(/^\//, '');
+    const file = resolveContainedFile(base, relative);
+    replacements[resource] = await readPortableImage(file);
+  }
+  sourceContent = replaceImagePaths(sourceContent, replacements);
 
   // 1. Run Preflight Inspection
   // Validate cover dimensions only in strict mode, consistent with publish-dir

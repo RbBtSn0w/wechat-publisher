@@ -1,3 +1,4 @@
+import { validPng } from './helpers/image';
 import fs from 'fs';
 import http from 'http';
 import os from 'os';
@@ -50,8 +51,8 @@ test('sync creates a draft through the mock WeChat API with local cover and body
   const coverPath = path.join(root, 'cover.png');
   const bodyPath = path.join(root, 'body.png');
   const configPath = path.join(root, 'wechat.yml');
-  fs.writeFileSync(coverPath, 'cover');
-  fs.writeFileSync(bodyPath, 'body');
+  fs.writeFileSync(coverPath, validPng);
+  fs.writeFileSync(bodyPath, validPng);
   fs.writeFileSync(postPath, [
     '---',
     'title: Mock API article',

@@ -2,6 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import { fingerprintFile, ResourceCache } from './cache';
 import { Uploader } from './uploader';
+import { validateUploadableImage } from './media';
+import { findResourceOccurrences } from './parser';
+import { replaceSourceRegions } from './source-regions';
+import { runPreflightCheck } from './preflight';
+import { assertValidArticle } from './article-validator';
+import { SyncLimits } from '../types';
 
 type DraftPayload = {
   articles: Record<string, unknown>[];
@@ -18,6 +24,7 @@ type ResolveOptions = {
   cache: ResourceCache;
   dryRun: boolean;
   uploader?: Uploader;
+  limits?: Partial<SyncLimits>;
 };
 
 const LOCAL_PREFIX = 'local://';
@@ -77,6 +84,7 @@ async function resolvePermanentMediaId(
   options: ResolveOptions,
   stats: ResolveStats
 ): Promise<string> {
+  await validateUploadableImage(localPath);
   if (options.dryRun) {
     return `DRYRUN_MEDIA_ID_${path.basename(localPath)}`;
   }
@@ -86,13 +94,11 @@ async function resolvePermanentMediaId(
   }
 
   const cacheKey = `perm:${localPath}`;
-  const cached = options.cache.get(cacheKey, fingerprintFile(localPath));
-  if (cached) return cached;
-
-  const mediaId = await options.uploader.uploadPermanentImage(localPath);
-  options.cache.set(cacheKey, mediaId, fingerprintFile(localPath));
-  stats.permanentUploadCount += 1;
-  return mediaId;
+  return options.cache.getOrUpload(cacheKey, fingerprintFile(localPath), async () => {
+    const mediaId = await options.uploader!.uploadPermanentImage(localPath);
+    stats.permanentUploadCount += 1;
+    return mediaId;
+  });
 }
 
 async function resolveContentImageUrl(
@@ -100,6 +106,7 @@ async function resolveContentImageUrl(
   options: ResolveOptions,
   stats: ResolveStats
 ): Promise<string> {
+  await validateUploadableImage(localPath);
   if (options.dryRun) {
     return `DRYRUN_URL_${path.basename(localPath)}`;
   }
@@ -109,13 +116,11 @@ async function resolveContentImageUrl(
   }
 
   const cacheKey = `url:${localPath}`;
-  const cached = options.cache.get(cacheKey, fingerprintFile(localPath));
-  if (cached) return cached;
-
-  const url = await options.uploader.uploadImage(localPath);
-  options.cache.set(cacheKey, url, fingerprintFile(localPath));
-  stats.contentUploadCount += 1;
-  return url;
+  return options.cache.getOrUpload(cacheKey, fingerprintFile(localPath), async () => {
+    const url = await options.uploader!.uploadImage(localPath);
+    stats.contentUploadCount += 1;
+    return url;
+  });
 }
 
 async function replaceLocalPlaceholdersInContent(
@@ -123,18 +128,18 @@ async function replaceLocalPlaceholdersInContent(
   options: ResolveOptions,
   stats: ResolveStats
 ): Promise<string> {
-  const matches = content.match(/local:\/\/[^\s"'<>]+/g) || [];
-  const uniq = Array.from(new Set(matches));
+  const matches = findResourceOccurrences(content).filter(item => item.path.startsWith(LOCAL_PREFIX));
+  const uniq = Array.from(new Set(matches.map(item => item.path)));
   if (uniq.length === 0) return content;
 
-  let replaced = content;
+  const replacements: Record<string, string> = {};
   for (const placeholder of uniq) {
     const localPath = resolveLocalFile(options.directory, placeholder);
     const url = await resolveContentImageUrl(localPath, options, stats);
     stats.placeholderCount += 1;
-    replaced = replaced.split(placeholder).join(url);
+    replacements[placeholder] = url;
   }
-  return replaced;
+  return replaceSourceRegions(content, matches.map(item => ({ ...item, replacement: replacements[item.path] })));
 }
 
 function normalizeArticleType(article: Record<string, unknown>, index: number): 'news' | 'newspic' {
@@ -253,8 +258,8 @@ export function readDraftPayloadFromDirectory(directory: string): DraftPayload {
   let payload: unknown;
   try {
     payload = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-  } catch (e: any) {
-    throw new Error(`Failed to parse JSON ${jsonPath}: ${e.message}`);
+  } catch (e: unknown) {
+    throw new Error(`Failed to parse JSON ${jsonPath}: ${e instanceof Error ? e.message : 'invalid JSON'}`);
   }
 
   const obj = ensureObject(payload, 'Draft payload');
@@ -271,6 +276,10 @@ export async function resolveDraftPayloadMedia(
   payload: DraftPayload,
   options: ResolveOptions
 ): Promise<{ payload: DraftPayload; stats: ResolveStats }> {
+  if (!options.dryRun) {
+    // Validate every article before permitting the first irreversible upload.
+    await resolveDraftPayloadMedia(payload, { ...options, dryRun: true, uploader: undefined });
+  }
   const resolved: DraftPayload = JSON.parse(JSON.stringify(payload));
   const stats: ResolveStats = {
     placeholderCount: 0,
@@ -290,6 +299,13 @@ export async function resolveDraftPayloadMedia(
     } else {
       await resolveNewspicArticle(article, i, options, stats);
     }
+    const preflight = await runPreflightCheck({ content: String(article.content) });
+    if (!preflight.passed) throw new Error(preflight.issues.map(issue => issue.message).join(' '));
+    assertValidArticle({ title: typeof article.title === 'string' ? article.title : '',
+      author: typeof article.author === 'string' ? article.author : '',
+      digest: typeof article.digest === 'string' ? article.digest : '', content: String(article.content),
+      thumbMediaId: typeof article.thumb_media_id === 'string' ? article.thumb_media_id : '', articleType,
+    }, options.limits);
   }
 
   return { payload: resolved, stats };

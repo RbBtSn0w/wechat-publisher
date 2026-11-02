@@ -1,8 +1,10 @@
+import { validPng } from './helpers/image';
 import { expect, test } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { ResourceCache } from '../src/lib/cache';
+import { vi } from 'vitest';
 import {
   discoverDraftDirectories,
   readDraftPayloadFromDirectory,
@@ -22,8 +24,8 @@ test('readDraftPayloadFromDirectory requires exactly one json', () => {
 
 test('resolveDraftPayloadMedia dry-run resolves local placeholders', async () => {
   const dir = makeTempDir();
-  fs.writeFileSync(path.join(dir, 'cover.png'), 'x');
-  fs.writeFileSync(path.join(dir, 'body.png'), 'x');
+  fs.writeFileSync(path.join(dir, 'cover.png'), validPng);
+  fs.writeFileSync(path.join(dir, 'body.png'), validPng);
 
   const payload = {
     articles: [
@@ -37,7 +39,7 @@ test('resolveDraftPayloadMedia dry-run resolves local placeholders', async () =>
 
   const { payload: resolved, stats } = await resolveDraftPayloadMedia(payload, {
     directory: dir,
-    cache: new ResourceCache(),
+    cache: new ResourceCache({ cacheRoot: path.join(os.tmpdir(), 'wechat-draft-test-cache', path.basename(makeTempDir())) }),
     dryRun: true,
   });
 
@@ -50,7 +52,7 @@ test('resolveDraftPayloadMedia dry-run resolves local placeholders', async () =>
 
 test('resolveDraftPayloadMedia resolves newspic media ids with cache reuse', async () => {
   const dir = makeTempDir();
-  fs.writeFileSync(path.join(dir, 'a.png'), 'x');
+  fs.writeFileSync(path.join(dir, 'a.png'), validPng);
 
   const uploader = {
     permUploads: 0,
@@ -80,7 +82,7 @@ test('resolveDraftPayloadMedia resolves newspic media ids with cache reuse', asy
 
   const { payload: resolved, stats } = await resolveDraftPayloadMedia(payload, {
     directory: dir,
-    cache: new ResourceCache(),
+    cache: new ResourceCache({ cacheRoot: path.join(os.tmpdir(), 'wechat-draft-test-cache', path.basename(makeTempDir())) }),
     uploader: uploader as any,
     dryRun: false,
   });
@@ -105,7 +107,7 @@ test('resolveDraftPayloadMedia enforces news thumb_media_id', async () => {
   await expect(
     resolveDraftPayloadMedia(payload, {
       directory: makeTempDir(),
-      cache: new ResourceCache(),
+      cache: new ResourceCache({ cacheRoot: path.join(os.tmpdir(), 'wechat-draft-test-cache', path.basename(makeTempDir())) }),
       dryRun: true,
     })
   ).rejects.toThrow(/thumb_media_id/);
@@ -125,5 +127,22 @@ test('discoverDraftDirectories finds single directory or subdirectories', () => 
 
   // If pointing to sub1 directly, returns [sub1]
   expect(discoverDraftDirectories(sub1)).toEqual([sub1]);
+});
+
+test('real resolution validates every article before any upload and preserves code examples', async () => {
+  const directory = makeTempDir();
+  fs.writeFileSync(path.join(directory, 'valid.png'), validPng);
+  const uploader = { uploadImage: vi.fn(async () => 'https://wechat/image'), uploadPermanentImage: vi.fn(async () => 'media') };
+  const options = { directory, cache: new ResourceCache({ cacheRoot: path.join(directory, 'cache') }), uploader: uploader as never, dryRun: false };
+  await expect(resolveDraftPayloadMedia({ articles: [
+    { content: '<img src="local://valid.png">', thumb_media_id: 'existing' },
+    { content: 'Second article', thumb_media_id: 'local://missing.png' },
+  ] }, options)).rejects.toThrow();
+  expect(uploader.uploadImage).not.toHaveBeenCalled();
+  expect(uploader.uploadPermanentImage).not.toHaveBeenCalled();
+  const result = await resolveDraftPayloadMedia({ articles: [
+    { content: '<pre><code>local://example.png</code></pre><img src="local://valid.png">', thumb_media_id: 'existing' },
+  ] }, { ...options, dryRun: true });
+  expect(result.payload.articles[0].content).toContain('<code>local://example.png</code>');
 });
 

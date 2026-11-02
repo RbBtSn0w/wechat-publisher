@@ -3,6 +3,7 @@ import path from 'path';
 import { loadConfig } from '../lib/config';
 import { formatErrorWithHints } from '../lib/error-hints';
 import { syncCommand } from './sync';
+import { UnknownWriteOutcomeError } from '../lib/api-client';
 
 export async function latestCommand(countStr: string | undefined, options: any) {
   const config = loadConfig(options.config, { requireCredentials: !options.dryRun });
@@ -35,9 +36,14 @@ export async function latestCommand(countStr: string | undefined, options: any) 
       
       try {
         await syncCommand(relativePath, options);
-      } catch (err: any) {
+      } catch (err: unknown) {
         failed += 1;
-        console.error(formatErrorWithHints(`Error syncing ${file}: ${err.message}`));
+        console.error(formatErrorWithHints(`Error syncing ${file}: ${err instanceof Error ? err.message : 'Unknown failure'}`));
+        if (err instanceof UnknownWriteOutcomeError) {
+          console.error(`Batch stopped: succeeded=${index - failed + 1}, failed=${failed}. Verify the unknown write in WeChat before retrying.`);
+          process.exitCode = 1;
+          return;
+        }
         console.log(`Continuing with next file...`);
       }
     }

@@ -2,6 +2,7 @@ import fs from 'fs';
 import FormData from 'form-data';
 import { WeChatAPIClient } from './api-client';
 import { validateImage } from './validator';
+import { requireWriteField, UnknownWriteOutcomeError } from './write-outcome';
 
 export class Uploader {
   constructor(private apiClient: WeChatAPIClient) {}
@@ -19,11 +20,13 @@ export class Uploader {
       timeout: 15_000,
     });
 
-    if (response.data.errcode && response.data.errcode !== 0) {
-      throw new Error(`Failed to upload image: ${response.data.errmsg} (${response.data.errcode})`);
+    const url = requireWriteField(response.data, 'url', 'Upload image');
+    try {
+      if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error('Invalid protocol');
+    } catch {
+      throw new UnknownWriteOutcomeError('Upload image');
     }
-
-    return response.data.url;
+    return url;
   }
 
   async uploadPermanentImage(localPath: string): Promise<string> {
@@ -39,10 +42,6 @@ export class Uploader {
       params: { access_token: token, type: 'image' },
     });
 
-    if (response.data.errcode && response.data.errcode !== 0) {
-      throw new Error(`Failed to upload permanent material: ${response.data.errmsg} (${response.data.errcode})`);
-    }
-
-    return response.data.media_id;
+    return requireWriteField(response.data, 'media_id', 'Upload permanent material');
   }
 }

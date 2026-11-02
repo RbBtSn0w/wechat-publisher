@@ -59,7 +59,7 @@ let url = "local://inside-code.png"
       .toFile(coverPath);
 
     const bodyImgPath = path.join(draftDir, 'diagram.png');
-    fs.writeFileSync(bodyImgPath, 'png-bytes');
+    await sharp({ create: { width: 2, height: 2, channels: 3, background: 'white' } }).png().toFile(bodyImgPath);
 
     const preRenderedHtml = `<section class="custom-wrapper"><p>Pre-rendered <a href="https://example.com/ref">Reference</a> and <img src="local://diagram.png"></p></section>`;
     fs.writeFileSync(
@@ -180,4 +180,19 @@ title: Todo Post
 
     expect(fs.existsSync(outFile)).toBe(false);
   });
+});
+
+it('inlines relative Markdown images and rejects corrupt images before writing', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portable-export-'));
+  try {
+    await sharp({ create: { width: 2, height: 2, channels: 3, background: 'white' } }).png().toFile(path.join(dir, 'image.png'));
+    fs.writeFileSync(path.join(dir, 'post.md'), '![real](image.png)');
+    await exportCommand(path.join(dir, 'post.md'), { output: path.join(dir, 'out.html') });
+    expect(fs.readFileSync(path.join(dir, 'out.html'), 'utf8')).toContain('data:image/png;base64,');
+    fs.writeFileSync(path.join(dir, 'image.png'), 'fake png');
+    await expect(exportCommand(path.join(dir, 'post.md'), { output: path.join(dir, 'bad.html') })).rejects.toThrow();
+    expect(fs.existsSync(path.join(dir, 'bad.html'))).toBe(false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

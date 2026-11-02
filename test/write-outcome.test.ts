@@ -1,0 +1,42 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterEach, expect, test } from 'vitest';
+import { Uploader } from '../src/lib/uploader';
+import { WeChatAPIClient } from '../src/lib/api-client';
+
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
+function uploader(data: unknown) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-upload-test-'));
+  roots.push(root);
+  const file = path.join(root, 'image.png');
+  fs.writeFileSync(file, 'image-fixture');
+  const api = { getAccessToken: async () => 'token', postMultipart: async () => ({ data }) } as unknown as WeChatAPIClient;
+  return { instance: new Uploader(api), file };
+}
+
+for (const data of [{}, { url: '' }, { url: 'javascript:secret-value' }, { url: 'not a url' }]) {
+  test(`image success response requires a usable URL: ${JSON.stringify(data)}`, async () => {
+    const { instance, file } = uploader(data);
+    await expect(instance.uploadImage(file)).rejects.toMatchObject({ code: 'WRITE_RESULT_UNKNOWN' });
+  });
+}
+
+test('permanent uploads require a nonempty media id', async () => {
+  const { instance, file } = uploader({ media_id: '' });
+  await expect(instance.uploadPermanentImage(file)).rejects.toMatchObject({ code: 'WRITE_RESULT_UNKNOWN' });
+});
+
+test('business rejects never disclose remote messages', async () => {
+  const { instance, file } = uploader({ errcode: 40001, errmsg: 'secret-value' });
+  const error = await instance.uploadImage(file).catch(error => error);
+  expect(error).toMatchObject({ code: 'WECHAT_REJECTED', errcode: 40001 });
+  expect(String(error)).not.toContain('secret-value');
+});
+
+test('validated image and permanent media successes retain their results', async () => {
+  const { instance, file } = uploader({ url: 'https://wechat/image', media_id: 'media' });
+  await expect(instance.uploadImage(file)).resolves.toBe('https://wechat/image');
+  await expect(instance.uploadPermanentImage(file)).resolves.toBe('media');
+});

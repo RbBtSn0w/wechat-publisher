@@ -1,23 +1,19 @@
 import {
-  parseMarkdown,
-  extractImagePaths,
-  replaceImagePaths,
-  extractMermaidBlocks,
-  replaceMermaidBlocks,
-  normalizeJekyllMarkdown,
-  findUnsupportedMarkdown,
-  extractMathExpressions,
-  replaceMathExpressions,
+  parseMarkdown, extractImagePaths, replaceImagePaths, extractMermaidBlocks,
+  replaceMermaidBlocks, normalizeJekyllMarkdown, findUnsupportedMarkdown,
+  extractMathExpressions, replaceMathExpressions,
 } from './parser';
 import { neuterLinksToSpans } from './converter';
 import { AppConfig, BlogPost, ConversionDiagnostic, ConversionStats, ProcessResult } from '../types';
 import { Uploader } from './uploader';
-import { fingerprintFile, ResourceCache } from './cache';
+import { cacheScope, fingerprintFile, ResourceCache } from './cache';
 import { MermaidRenderer } from './mermaid-renderer';
 import { FormulaRenderer } from './formula-renderer';
 import { RemoteImageDownloader } from './remote-image';
 import { ArticleValidationError, validateArticle } from './article-validator';
 import { getRepoRoot } from './constants';
+import { validateUploadableImage, resolveContainedFile } from './media';
+import { validatePlaceholderText } from './preflight';
 import { renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
 import { LEGACY_THEME_NAME } from './theme-registry';
 import path from 'path';
@@ -27,324 +23,197 @@ export interface MermaidRenderService {
   getHash(mermaidCode: string): string;
   renderToImage(mermaidCode: string): Promise<string>;
 }
-
 export interface FormulaRenderService {
   getHash(expression: string, display: boolean): string;
   renderToImage(expression: string, display: boolean): Promise<string>;
 }
-
-export interface ImageDownloadService {
-  download(url: string): Promise<string>;
-}
-
+export interface ImageDownloadService { download(url: string): Promise<string> }
 export interface ProcessServices {
   mermaidRenderer?: MermaidRenderService;
   formulaRenderer?: FormulaRenderService;
   remoteImageDownloader?: ImageDownloadService;
 }
 
-function resolveLocalAssetPath(repoRoot: string, assetPath: string, assetsDir: string): string {
-  if (assetPath.startsWith('/')) {
-    const repositoryPath = path.join(repoRoot, assetPath);
-    return fs.existsSync(repositoryPath) ? repositoryPath : assetPath;
-  }
-  return path.join(repoRoot, assetsDir, assetPath);
+interface PreparedAsset { localPath: string; fingerprint: string; token?: string }
+export interface PreparedPost {
+  result: ProcessResult;
+  images: PreparedAsset[];
+  cover?: PreparedAsset;
+  config: AppConfig;
+  htmlTemplate: string;
 }
 
-export async function processPost(
-  filePath: string,
-  config: AppConfig,
-  uploader?: Uploader,
-  services?: ProcessServices
-): Promise<BlogPost> {
-  return (await processPostWithReport(filePath, config, uploader, services)).post;
+function resolveLocalAssetPath(repoRoot: string, assetPath: string, assetsDir: string): string {
+  if (path.isAbsolute(assetPath)) {
+    const repositoryPath = path.join(repoRoot, assetPath);
+    if (fs.existsSync(repositoryPath)) return resolveContainedFile(repoRoot, assetPath.replace(/^\/+/, ''));
+    if (!fs.existsSync(assetPath)) throw new Error(`Image not found: ${assetPath}`);
+    // Explicit filesystem paths remain supported within the configured assets root.
+    const base = path.resolve(repoRoot, assetsDir || '.');
+    return resolveContainedFile(base, path.relative(base, assetPath));
+  }
+  try {
+    return resolveContainedFile(path.resolve(repoRoot, assetsDir || '.'), assetPath.replace(/^local:\/\//, ''));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Image not found: ${assetPath}`);
+    throw error;
+  }
+}
+
+function assertContent(result: ProcessResult, config: AppConfig, requireCover: boolean): void {
+  const post = result.post;
+  const diagnostics = validateArticle({
+    title: post.title, author: post.author, digest: post.digest, content: post.contentHtml,
+    thumbMediaId: requireCover ? post.wechatThumbMediaId : 'preview-cover', articleType: post.articleType,
+  }, config.limits).filter(issue => issue.severity === 'error');
+  if (diagnostics.length) throw new ArticleValidationError(diagnostics);
+}
+
+/** Prepare and validate every resource without calling a WeChat write endpoint. */
+export async function preparePostWithReport(
+  filePath: string, config: AppConfig, services: ProcessServices = {}, requireCover = false
+): Promise<PreparedPost> {
+  const repoRoot = getRepoRoot();
+  const info = parseMarkdown(filePath);
+  if (!info.contentMarkdown?.trim()) throw new Error('Post content is empty.');
+  let markdown = normalizeJekyllMarkdown(info.contentMarkdown);
+  const diagnostics: ConversionDiagnostic[] = findUnsupportedMarkdown(markdown, filePath);
+  if (diagnostics.some(issue => issue.severity === 'error')) {
+    throw new Error(diagnostics.map(issue => `${issue.message} (${filePath}:${issue.line})`).join(' '));
+  }
+  const stats: ConversionStats = {
+    uploadedImages: 0, uploadedCovers: 0, renderedMermaid: 0, renderedFormulas: 0, degradedMermaid: 0,
+  };
+  const articleType = info.articleType || 'news';
+  if (requireCover && articleType === 'news' && !info.localThumbPath && !info.wechatThumbMediaId) {
+    throw new Error('News articles require a cover image or permanent thumb_media_id before asset processing.');
+  }
+  const metadataErrors = validateArticle({
+    title: info.title || 'Untitled', author: info.author || config.author || '', digest: info.digest || '',
+    content: '', thumbMediaId: 'preflight', articleType,
+  }, config.limits).filter(issue => issue.severity === 'error' && !issue.code.startsWith('ARTICLE_CONTENT_'));
+  if (metadataErrors.length) throw new ArticleValidationError(metadataErrors);
+
+  let cover: PreparedAsset | undefined;
+  if (info.localThumbPath) {
+    const localPath = resolveLocalAssetPath(repoRoot, info.localThumbPath, config.assetsDir);
+    await validateUploadableImage(localPath);
+    cover = { localPath, fingerprint: fingerprintFile(localPath) };
+  }
+  const generated = new Set<string>();
+  const math = extractMathExpressions(markdown);
+  if (math.length) {
+    const renderer = services.formulaRenderer || new FormulaRenderer();
+    const replacements: Record<string, string> = {};
+    for (const expression of math) {
+      const localPath = await renderer.renderToImage(expression.expression, expression.display);
+      replacements[expression.key] = `![Formula](<${localPath}>)`;
+      generated.add(localPath);
+      stats.renderedFormulas++;
+    }
+    markdown = replaceMathExpressions(markdown, replacements);
+  }
+  const mermaid = extractMermaidBlocks(markdown);
+  if (mermaid.length) {
+    const renderer = services.mermaidRenderer || new MermaidRenderer();
+    const replacements: Record<string, string> = {};
+    for (const code of mermaid) {
+      try {
+        const localPath = await renderer.renderToImage(code);
+        replacements[code] = `![Mermaid Diagram](<${localPath}>)`;
+        generated.add(localPath);
+        stats.renderedMermaid++;
+      } catch (error: unknown) {
+        replacements[code] = '> 📊 [Mermaid Diagram - Pending Sync]';
+        stats.degradedMermaid++;
+        diagnostics.push({ code: 'MERMAID_RENDER_DEGRADED', severity: 'warning',
+          message: `Mermaid rendering failed: ${error instanceof Error ? error.message : 'render unavailable'}`,
+          sourcePath: filePath, resource: renderer.getHash(code) });
+      }
+    }
+    markdown = replaceMermaidBlocks(markdown, replacements);
+  }
+  const downloader = services.remoteImageDownloader || new RemoteImageDownloader();
+  const replacements: Record<string, string> = {};
+  const assets = new Map<string, PreparedAsset>();
+  for (const source of extractImagePaths(markdown)) {
+    const localPath = generated.has(source) ? source : /^https?:\/\//i.test(source)
+      ? await downloader.download(source) : resolveLocalAssetPath(repoRoot, source, config.assetsDir);
+    await validateUploadableImage(localPath);
+    replacements[source] = localPath;
+    if (!assets.has(localPath)) assets.set(localPath, { localPath, fingerprint: fingerprintFile(localPath),
+      token: `https://wechat-publisher.invalid/resource/${assets.size}` });
+  }
+  markdown = replaceImagePaths(markdown, replacements);
+  const placeholders = validatePlaceholderText(markdown).filter(issue => issue.severity === 'error');
+  if (placeholders.length) throw new Error(placeholders.map(issue => issue.message).join(' '));
+  // Bind resource identities before the SDK encodes destinations or HTML attributes.
+  const tokens = Object.fromEntries([...assets.values()].map(asset => [asset.localPath, asset.token!]));
+  const rendered = await renderMarkdownToWechat(replaceImagePaths(markdown, tokens), {
+    theme: LEGACY_THEME_NAME, siteUrl: config.siteUrl, renderMath: false, renderMermaid: false,
+    footnoteLinks: false, gfmAlerts: false, macCodeBlock: true, tableScroller: false,
+  });
+  diagnostics.push(...rendered.diagnostics.filter(issue => issue.code !== 'LOCAL_IMAGE_UNRESOLVED')
+    .map(issue => ({ ...issue, sourcePath: filePath })));
+  const htmlTemplate = neuterLinksToSpans(rendered.html);
+  const previewPaths = Object.fromEntries([...assets.values()].map(asset => [asset.token!,
+    asset.localPath.split('/').map(encodeURIComponent).join('/')]));
+  const result: ProcessResult = { post: {
+    title: info.title || 'Untitled', author: info.author || config.author || '', digest: info.digest || '',
+    contentMarkdown: markdown, contentHtml: replaceImagePaths(htmlTemplate, previewPaths),
+    localThumbPath: info.localThumbPath || '', wechatThumbMediaId: info.wechatThumbMediaId || '',
+    articleType, originalPath: filePath,
+  }, diagnostics, stats };
+  assertContent(result, config, false);
+  return { result, images: [...assets.values()], cover, config, htmlTemplate };
+}
+
+/** Execute only a successfully prepared post; unknown writes propagate without replay. */
+export async function executePreparedPost(prepared: PreparedPost, uploader: Uploader): Promise<ProcessResult> {
+  const { config } = prepared;
+  const result: ProcessResult = {
+    post: { ...prepared.result.post }, diagnostics: [...prepared.result.diagnostics], stats: { ...prepared.result.stats },
+  };
+  for (const asset of [...prepared.images, ...(prepared.cover ? [prepared.cover] : [])]) {
+    if (fingerprintFile(asset.localPath) !== asset.fingerprint) throw new Error('Prepared image changed; run preflight again.');
+  }
+  const cache = new ResourceCache({ scope: cacheScope(config) });
+  const replacements: Record<string, string> = {};
+  for (const asset of prepared.images) {
+    replacements[asset.localPath] = await cache.getOrUpload(`url:${asset.localPath}`, asset.fingerprint, async () => {
+      const url = await uploader.uploadImage(asset.localPath);
+      result.stats.uploadedImages++;
+      return url;
+    });
+  }
+  result.post.contentMarkdown = replaceImagePaths(result.post.contentMarkdown, replacements);
+  const htmlReplacements = Object.fromEntries(prepared.images.map(asset => [asset.token!,
+    new URL(replacements[asset.localPath]).href.replace(/&/g, '&amp;')]));
+  result.post.contentHtml = replaceImagePaths(prepared.htmlTemplate, htmlReplacements);
+  if (prepared.cover) {
+    const asset = prepared.cover;
+    result.post.wechatThumbMediaId = await cache.getOrUpload(`perm:${asset.localPath}`, asset.fingerprint, async () => {
+      const id = await uploader.uploadPermanentImage(asset.localPath);
+      result.stats.uploadedCovers++;
+      return id;
+    });
+  }
+  try { assertContent(result, config, true); }
+  catch (error) {
+    console.warn(`Final payload validation failed after asset preparation: ${result.stats.uploadedImages} body image(s), ${result.stats.uploadedCovers} cover(s) uploaded. Verify existing assets before retrying.`);
+    throw error;
+  }
+  return result;
 }
 
 export async function processPostWithReport(
-  filePath: string,
-  config: AppConfig,
-  uploader?: Uploader,
-  services: ProcessServices = {}
+  filePath: string, config: AppConfig, uploader?: Uploader, services: ProcessServices = {}
 ): Promise<ProcessResult> {
-  const repoRoot = getRepoRoot();
-  const postInfo = parseMarkdown(filePath);
-  
-  if (!postInfo.contentMarkdown) {
-    throw new Error('Post content is empty.');
-  }
-
-  let finalMarkdown = normalizeJekyllMarkdown(postInfo.contentMarkdown);
-  const diagnostics: ConversionDiagnostic[] = findUnsupportedMarkdown(finalMarkdown, filePath);
-  const unsupportedErrors = diagnostics.filter(diagnostic => diagnostic.severity === 'error');
-  if (unsupportedErrors.length > 0) {
-    throw new Error(unsupportedErrors.map(diagnostic => `${diagnostic.message} (${filePath}:${diagnostic.line})`).join(' '));
-  }
-
-  const metadataErrors = validateArticle({
-    title: String(postInfo.title || ''),
-    author: String(postInfo.author || ''),
-    digest: String(postInfo.digest || ''),
-    content: '',
-    thumbMediaId: 'preflight',
-    articleType: postInfo.articleType || 'news',
-  }, config.limits).filter(diagnostic =>
-    diagnostic.code.startsWith('ARTICLE_TITLE_') ||
-    diagnostic.code.startsWith('ARTICLE_AUTHOR_') ||
-    diagnostic.code.startsWith('ARTICLE_DIGEST_')
-  );
-  if (metadataErrors.length > 0) throw new ArticleValidationError(metadataErrors);
-
-  const articleType = postInfo.articleType || 'news';
-  const coverPath = postInfo.localThumbPath?.trim() || '';
-  const coverMediaId = postInfo.wechatThumbMediaId?.trim() || '';
-  if (uploader && articleType === 'news' && !coverPath && !coverMediaId) {
-    throw new ArticleValidationError([{
-      code: 'ARTICLE_COVER_REQUIRED',
-      severity: 'error',
-      message: 'News articles require a cover image or permanent thumb_media_id before asset processing.',
-    }]);
-  }
-  if (coverPath) {
-    const preflightCoverPath = resolveLocalAssetPath(repoRoot, coverPath, config.assetsDir || '');
-    if (!fs.existsSync(preflightCoverPath)) {
-      throw new Error('Cover image not found: ' + preflightCoverPath);
-    }
-  }
-
-  const stats: ConversionStats = {
-    uploadedImages: 0,
-    uploadedCovers: 0,
-    renderedMermaid: 0,
-    renderedFormulas: 0,
-    degradedMermaid: 0,
-  };
-  const cache = new ResourceCache();
-  const generatedImagePaths = new Set<string>();
-
-  // 1. Render formulas before Mermaid and image processing so all generated
-  // assets use the same upload/cache path.
-  const mathExpressions = extractMathExpressions(finalMarkdown);
-  if (mathExpressions.length > 0) {
-    const renderer = services.formulaRenderer || new FormulaRenderer();
-    const replacements: Record<string, string> = {};
-    await Promise.all(mathExpressions.map(async expression => {
-      const localPath = await renderer.renderToImage(expression.expression, expression.display);
-      if (uploader) {
-        const cacheKey = `formula:${renderer.getHash(expression.expression, expression.display)}`;
-        let url = cache.get(cacheKey);
-        if (!url) {
-          url = await uploader.uploadImage(localPath);
-          cache.set(cacheKey, url);
-          stats.uploadedImages += 1;
-        }
-        replacements[expression.key] = `![Formula](${url})`;
-        generatedImagePaths.add(url);
-      } else {
-        replacements[expression.key] = `![Formula](${localPath})`;
-        generatedImagePaths.add(localPath);
-      }
-      stats.renderedFormulas += 1;
-    }));
-    finalMarkdown = replaceMathExpressions(finalMarkdown, replacements);
-  }
-
-  // 2. Process Mermaid Blocks -> Convert to static images
-  const mermaidBlocks = extractMermaidBlocks(finalMarkdown);
-  if (mermaidBlocks.length > 0) {
-    console.log(`🚀 Found ${mermaidBlocks.length} Mermaid blocks. Converting to images...`);
-    const renderer = services.mermaidRenderer || new MermaidRenderer();
-    const mermaidReplacements: Record<string, string> = {};
-
-    const mermaidPromises = mermaidBlocks.map(async (code) => {
-      try {
-        const hash = renderer.getHash(code);
-        const cacheKey = `mermaid:${hash}`;
-        let wechatUrl = cache.get(cacheKey);
-        let localImgPath: string | undefined;
-
-        if (!wechatUrl) {
-          localImgPath = await renderer.renderToImage(code);
-          wechatUrl = cache.get(localImgPath);
-          
-          if (!wechatUrl && uploader) {
-            console.log(`Uploading Mermaid diagram to WeChat...`);
-            wechatUrl = await uploader.uploadImage(localImgPath);
-            cache.set(localImgPath, wechatUrl);
-            cache.set(cacheKey, wechatUrl);
-          }
-        }
-
-        if (wechatUrl) {
-          mermaidReplacements[code] = `![Mermaid Diagram](${wechatUrl})`;
-          generatedImagePaths.add(wechatUrl);
-          stats.renderedMermaid += 1;
-        } else if (!uploader && localImgPath) {
-          mermaidReplacements[code] = `![Mermaid Diagram](${localImgPath})`;
-          generatedImagePaths.add(localImgPath);
-          stats.renderedMermaid += 1;
-        } else {
-          mermaidReplacements[code] = `> 📊 [Mermaid Diagram - Pending Sync]`;
-          stats.degradedMermaid += 1;
-          diagnostics.push({
-            code: 'MERMAID_RENDER_DEGRADED',
-            severity: 'warning',
-            message: 'Mermaid rendering produced no image URL; inserted a placeholder.',
-            sourcePath: filePath,
-            resource: renderer.getHash(code),
-          });
-        }
-      } catch (e: any) {
-        console.error(`Failed to render Mermaid block: ${e.message}`);
-        // Never leak an unsupported code fence into the WeChat HTML conversion.
-        mermaidReplacements[code] = '> 📊 [Mermaid Diagram - Pending Sync]';
-        stats.degradedMermaid += 1;
-        diagnostics.push({
-          code: 'MERMAID_RENDER_DEGRADED',
-          severity: 'warning',
-          message: `Mermaid rendering failed: ${e.message}`,
-          sourcePath: filePath,
-          resource: renderer.getHash(code),
-        });
-      }
-    });
-
-    await Promise.all(mermaidPromises);
-    finalMarkdown = replaceMermaidBlocks(finalMarkdown, mermaidReplacements);
-  }
-
-  // 3. Process Normal Images. Dry-run keeps local paths for preview; real
-  // syncs upload both local and remote images to the WeChat image endpoint.
-  {
-    const imagePaths = extractImagePaths(finalMarkdown);
-    const replacements: Record<string, string> = {};
-    const remoteDownloader = services.remoteImageDownloader || new RemoteImageDownloader();
-
-    const uploadPromises = imagePaths.map(async (imgPath) => {
-      if (generatedImagePaths.has(imgPath)) return null;
-      try {
-        let localImgPath = imgPath;
-        if (/^https?:\/\//i.test(imgPath)) {
-          localImgPath = await remoteDownloader.download(imgPath);
-        } else {
-          localImgPath = resolveLocalAssetPath(repoRoot, imgPath, config.assetsDir || '');
-        }
-
-        if (!fs.existsSync(localImgPath)) {
-          throw new Error(`Image not found: ${localImgPath}`);
-        }
-
-        if (!uploader) return { imgPath, wechatUrl: localImgPath };
-
-        const fingerprint = fingerprintFile(localImgPath);
-        let wechatUrl = cache.get(localImgPath, fingerprint);
-        if (!wechatUrl) {
-          console.log(`Uploading image: ${localImgPath}...`);
-          wechatUrl = await uploader.uploadImage(localImgPath);
-          cache.set(localImgPath, wechatUrl, fingerprint);
-          stats.uploadedImages += 1;
-        }
-        return { imgPath, wechatUrl };
-      } catch (error: any) {
-        throw new Error(`Failed to prepare image "${imgPath}": ${error.message}`);
-      }
-    });
-
-    const results = await Promise.all(uploadPromises);
-    for (const res of results) {
-      if (res) replacements[res.imgPath] = res.wechatUrl;
-    }
-
-    // Apply replacements without changing prose or Markdown image titles.
-    finalMarkdown = replaceImagePaths(finalMarkdown, replacements);
-
-    // Handle Cover Image for real sync. Dry-run still verifies that a declared
-    // local cover exists, but does not need a media id.
-    if (postInfo.localThumbPath) {
-      let localThumbPath = postInfo.localThumbPath;
-      localThumbPath = resolveLocalAssetPath(repoRoot, localThumbPath, config.assetsDir || '');
-
-      if (!fs.existsSync(localThumbPath)) {
-        throw new Error(`Cover image not found: ${localThumbPath}`);
-      }
-      if (uploader) {
-        const fingerprint = fingerprintFile(localThumbPath);
-        let thumbMediaId = cache.get(`thumb:${localThumbPath}`, fingerprint);
-        if (!thumbMediaId) {
-          console.log(`Uploading cover image: ${localThumbPath}...`);
-          thumbMediaId = await uploader.uploadPermanentImage(localThumbPath);
-          cache.set(`thumb:${localThumbPath}`, thumbMediaId, fingerprint);
-          stats.uploadedCovers += 1;
-        }
-        postInfo.wechatThumbMediaId = thumbMediaId;
-      }
-    }
-  }
-
-  // 4-5. Convert Markdown to WeChat-ready inline HTML via the shared SDK
-  // engine. Formulas/Mermaid/images were already rendered and uploaded above
-  // using this project's own cache-aware pipeline, so the SDK's own math,
-  // Mermaid, and image resolution are disabled here to avoid double work.
-  const sdkResult = await renderMarkdownToWechat(finalMarkdown, {
-    theme: LEGACY_THEME_NAME,
-    siteUrl: config.siteUrl,
-    renderMath: false,
-    renderMermaid: false,
-    footnoteLinks: false,
-    gfmAlerts: false,
-    macCodeBlock: true,
-    tableScroller: false,
-  });
-  // LOCAL_IMAGE_UNRESOLVED assumes the caller relies on the SDK's own
-  // `resolveImage` hook; wechat-publisher resolves images itself above via
-  // its uploader/dry-run pipeline, so that diagnostic would be noise here.
-  diagnostics.push(
-    ...sdkResult.diagnostics
-      .filter((d) => d.code !== 'LOCAL_IMAGE_UNRESOLVED')
-      .map((d) => ({ ...d, sourcePath: filePath })),
-  );
-  let contentHtml = neuterLinksToSpans(sdkResult.html);
-
-  const contentErrors = validateArticle({
-    title: String(postInfo.title || ''),
-    author: String(postInfo.author || ''),
-    digest: String(postInfo.digest || ''),
-    content: contentHtml,
-    thumbMediaId: postInfo.wechatThumbMediaId || 'dry-run-cover',
-    articleType: postInfo.articleType || 'news',
-  }, config.limits).filter(diagnostic =>
-    diagnostic.code.startsWith('ARTICLE_CONTENT_')
-  );
-  if (contentErrors.length > 0) throw new ArticleValidationError(contentErrors);
-
-  // 6. Extra safety for any remaining relative image paths in HTML
-  {
-    const allImagePaths = extractImagePaths(postInfo.contentMarkdown || '');
-    for (const imgPath of allImagePaths) {
-      let localImgPath = imgPath;
-      localImgPath = resolveLocalAssetPath(repoRoot, imgPath, config.assetsDir || '');
-      
-      const wechatUrl = cache.get(localImgPath);
-      if (wechatUrl) {
-        const escapedPath = imgPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`src=["']${escapedPath}["']`, 'g');
-        contentHtml = contentHtml.replace(regex, `src="${wechatUrl}"`);
-      }
-    }
-  }
-
-  return {
-    post: {
-      title: postInfo.title || 'Untitled',
-      author: postInfo.author || '',
-      digest: postInfo.digest || '',
-      contentMarkdown: finalMarkdown,
-      contentHtml,
-      localThumbPath: postInfo.localThumbPath || '',
-      wechatThumbMediaId: postInfo.wechatThumbMediaId || '',
-      articleType: postInfo.articleType || 'news',
-      originalPath: filePath,
-    },
-    diagnostics,
-    stats,
-  };
+  const prepared = await preparePostWithReport(filePath, config, services, Boolean(uploader));
+  return uploader ? executePreparedPost(prepared, uploader) : prepared.result;
+}
+export async function processPost(
+  filePath: string, config: AppConfig, uploader?: Uploader, services?: ProcessServices
+): Promise<BlogPost> {
+  return (await processPostWithReport(filePath, config, uploader, services)).post;
 }

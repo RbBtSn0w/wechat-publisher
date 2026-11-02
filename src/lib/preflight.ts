@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
+import { maskProtectedRegions } from './source-regions';
 
 export interface PreflightIssue {
   severity: 'error' | 'warning';
@@ -16,7 +17,7 @@ export interface PreflightResult {
 
 export function validatePlaceholderText(content: string): PreflightIssue[] {
   const issues: PreflightIssue[] = [];
-  const lines = content.split(/\r?\n/);
+  const lines = maskProtectedRegions(content).split(/\r?\n/);
 
   const errorPatterns: { pattern: RegExp; desc: string }[] = [
     { pattern: /\[TODO(?:[:\s][^\]]*)?\]/i, desc: 'Unresolved [TODO] placeholder' },
@@ -29,43 +30,8 @@ export function validatePlaceholderText(content: string): PreflightIssue[] {
     { pattern: /\[TBD\]/i, desc: 'TBD placeholder' },
   ];
 
-  let fence: { char: string; len: number } | null = null;
-  let inPreOrCodeBlock = false;
-
-  lines.forEach((lineText, idx) => {
+  lines.forEach((visibleProse, idx) => {
     const lineNum = idx + 1;
-
-    // Track Markdown code fences (``` or ~~~)
-    const fenceMatch = lineText.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!fence) {
-        fence = { char: fenceMatch[1][0], len: fenceMatch[1].length };
-      } else if (fenceMatch[1][0] === fence.char && fenceMatch[1].length >= fence.len) {
-        fence = null;
-      }
-      return;
-    }
-    if (fence) {
-      return;
-    }
-
-    // Track multi-line HTML <pre> blocks
-    if (/<pre\b/i.test(lineText) && !/<\/pre>/i.test(lineText)) {
-      inPreOrCodeBlock = true;
-      return;
-    }
-    if (inPreOrCodeBlock) {
-      if (/<\/pre>/i.test(lineText)) {
-        inPreOrCodeBlock = false;
-      }
-      return;
-    }
-
-    // Strip inline code (`...`) and inline HTML `<code>...</code>` or `<pre>...</pre>` before matching prose
-    const visibleProse = lineText
-      .replace(/<pre\b[\s\S]*?<\/pre>/gi, '')
-      .replace(/<code\b[\s\S]*?<\/code>/gi, '')
-      .replace(/`[^`]+`/g, '');
 
     for (const { pattern, desc } of errorPatterns) {
       if (pattern.test(visibleProse)) {

@@ -206,3 +206,16 @@ test('extracts and replaces inline and display math without touching code', () =
   expect(result).toContain('[math:true]');
   expect(result).toContain('$not math$');
 });
+
+test('resource and math replacement preserves protected examples and identical prose', () => {
+  const md = ['````md', '```not a closing fence', '![sample](same.png) $x$', '````', '``![sample](same.png) ` $x$``', '<code>', '![sample](same.png) $x$', '</code> visible $x$', '![real](same.png)'].join('\n');
+  expect(extractImagePaths(md)).toEqual(['same.png']);
+  const images = replaceImagePaths(md, { 'same.png': 'cdn.png' });
+  expect(images.match(/cdn.png/g)).toHaveLength(1);
+  expect(extractMathExpressions(md)).toHaveLength(1);
+  expect(replaceMathExpressions(md, { 'inline:x': 'MATH' }).match(/MATH/g)).toHaveLength(1);
+});
+
+test('unsupported scanner ignores multiline HTML and variable backtick spans', () => {
+  expect(findUnsupportedMarkdown('<code>\n[^example]\n</code> ``[^example] ` x``')).toEqual([]);
+});
