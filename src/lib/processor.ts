@@ -10,7 +10,6 @@ import {
   replaceMathExpressions,
 } from './parser';
 import { neuterLinksToSpans } from './converter';
-import { techTheme } from './themes/tech';
 import { AppConfig, BlogPost, ConversionDiagnostic, ConversionStats, ProcessResult } from '../types';
 import { Uploader } from './uploader';
 import { fingerprintFile, ResourceCache } from './cache';
@@ -19,14 +18,10 @@ import { FormulaRenderer } from './formula-renderer';
 import { RemoteImageDownloader } from './remote-image';
 import { ArticleValidationError, validateArticle } from './article-validator';
 import { getRepoRoot } from './constants';
-import { renderMarkdownToWechat, registerTheme } from '@rbbtsn0w/wechat-markdown';
+import { renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
+import { LEGACY_THEME_NAME } from './theme-registry';
 import path from 'path';
 import fs from 'fs';
-
-// Keep the publisher's legacy output stable without replacing the SDK's
-// built-in themes. A dedicated name also works with all supported SDK builds.
-const LEGACY_THEME_NAME = 'wechat-publisher-legacy';
-registerTheme(LEGACY_THEME_NAME, techTheme);
 
 export interface MermaidRenderService {
   getHash(mermaidCode: string): string;

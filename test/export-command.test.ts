@@ -81,7 +81,7 @@ let url = "local://inside-code.png"
 
     const html = fs.readFileSync(outFile, 'utf8');
     expect(html).toContain('<section class="custom-wrapper">');
-    expect(html).toContain(bodyImgPath);
+    expect(html).toContain('data:image/png;base64,');
     expect(html).not.toContain('local://diagram.png');
     expect(html).toContain('https://example.com/ref');
   });

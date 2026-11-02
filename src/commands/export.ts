@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { normalizeJekyllMarkdown, parseMarkdown } from '../lib/parser';
-import { registerTheme, renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
-import { techTheme } from '../lib/themes/tech';
+import { renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
+import { LEGACY_THEME_NAME } from '../lib/theme-registry';
 import { normalizeLinksAndFootnotes } from '../lib/converter';
 import { copyRichTextToClipboard } from '../lib/clipboard';
 import { runPreflightCheck } from '../lib/preflight';
@@ -11,9 +11,6 @@ import {
   readDraftPayloadFromDirectory,
   resolveLocalFile,
 } from '../lib/directory-draft';
-
-const LEGACY_THEME_NAME = 'wechat-publisher-legacy';
-registerTheme(LEGACY_THEME_NAME, techTheme);
 
 export interface ExportCommandOptions {
   clip?: boolean;
@@ -51,11 +48,20 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
         coverPath = resolveLocalFile(fullPath, rawThumb);
       }
 
-      // Replace local:// image placeholders in HTML with resolved local paths for offline export
+      // Replace local:// image placeholders in HTML with portable data: URLs or fallback file paths for offline export
       const localMatches = sourceContent.match(/local:\/\/[^\s"'<>]+/g) || [];
       for (const placeholder of Array.from(new Set(localMatches))) {
         const localFile = resolveLocalFile(fullPath, placeholder);
-        sourceContent = sourceContent.split(placeholder).join(localFile);
+        let replacement = localFile;
+        try {
+          const ext = path.extname(localFile).toLowerCase().replace(/^\./, '');
+          const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
+          const base64Data = fs.readFileSync(localFile).toString('base64');
+          replacement = `data:${mimeType};base64,${base64Data}`;
+        } catch {
+          // If reading fails, keep the local file path as fallback
+        }
+        sourceContent = sourceContent.split(placeholder).join(replacement);
       }
     } else {
       const mdCandidates = ['index.md', 'README.md', 'post.md'];
@@ -95,10 +101,11 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
   }
 
   // 1. Run Preflight Inspection
+  // Validate cover dimensions only in strict mode, consistent with publish-dir
   console.log(`🔍 Running preflight checks on ${path.basename(targetPath)}...`);
   const preflight = await runPreflightCheck({
     content: sourceContent,
-    coverPath,
+    coverPath: options.strict ? coverPath : undefined,
     strict: options.strict,
   });
 
@@ -148,7 +155,7 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
     if (clipResult.success) {
       console.log('🎉 Success! Rich-text copied to clipboard. You can now paste (⌘+V) directly into WeChat Official Account editor.');
     } else {
-      console.warn(`⚠️ Clipboard warning: ${clipResult.error}`);
+      throw new Error(`Failed to copy rich-text to clipboard: ${clipResult.error}`);
     }
   }
 

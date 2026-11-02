@@ -47,19 +47,19 @@ export async function publishDirCommand(directory: string, options: any) {
         console.log(`\nProcessing draft directory: ${dirName}`);
       }
 
-      // 1. Resolve all valid local:// placeholders (with directory traversal protection)
-      const { payload, stats } = await resolveDraftPayloadMedia(rawPayload, {
+      // 1. Dry-run resolve first (offline, no uploader) to validate local files and feed preflight
+      const preview = await resolveDraftPayloadMedia(rawPayload, {
         directory: draftDir,
         cache,
-        uploader: options.dryRun ? undefined : uploader,
-        dryRun: Boolean(options.dryRun),
+        uploader: undefined,
+        dryRun: true,
       });
 
-      // 2. Run preflight checks on the resolved articles
-      for (let i = 0; i < payload.articles.length; i += 1) {
-        const resolvedArticle = payload.articles[i];
+      // 2. Run preflight checks on the preview articles BEFORE any remote uploads
+      for (let i = 0; i < preview.payload.articles.length; i += 1) {
+        const previewArticle = preview.payload.articles[i];
         const rawArticle = rawPayload.articles[i] || {};
-        const contentStr = typeof resolvedArticle.content === 'string' ? resolvedArticle.content : '';
+        const contentStr = typeof previewArticle.content === 'string' ? previewArticle.content : '';
         const rawThumb = typeof rawArticle.thumb_media_id === 'string' ? rawArticle.thumb_media_id : '';
 
         let coverLocalPath: string | undefined;
@@ -85,6 +85,14 @@ export async function publishDirCommand(directory: string, options: any) {
           throw new Error(`Draft [${dirName}] failed preflight checks. Aborting upload.`);
         }
       }
+
+      // 3. Real resolution (only uploads if dryRun is false)
+      const { payload, stats } = await resolveDraftPayloadMedia(rawPayload, {
+        directory: draftDir,
+        cache,
+        uploader: options.dryRun ? undefined : uploader,
+        dryRun: Boolean(options.dryRun),
+      });
 
       if (options.dryRun) {
         const debugFile = path.join(TEMP_PATHS.debug, `wechat-publish-dir-dryrun-${dirName}-${Date.now()}.json`);

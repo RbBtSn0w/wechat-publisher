@@ -46,6 +46,18 @@ test('normalizeLinksAndFootnotes escapes HTML characters in footnote URLs and ti
   expect(escapeHtml('<script>"alert"</script>')).toBe('&lt;script&gt;&quot;alert&quot;&lt;/script&gt;');
 });
 
+test('normalizeLinksAndFootnotes decodes pre-encoded HTML entities in links and titles before re-escaping', () => {
+  const html = '<p>Visit <a href="https://example.com/search?a=1&amp;b=2">A &amp; B</a></p>';
+  const result = normalizeLinksAndFootnotes(html);
+
+  expect(result.footnotes[0].href).toBe('https://example.com/search?a=1&b=2');
+  expect(result.footnotes[0].text).toBe('A & B');
+  // Must not double escape &amp; to &amp;amp;
+  expect(result.html).toContain('https://example.com/search?a=1&amp;b=2');
+  expect(result.html).not.toContain('&amp;amp;');
+  expect(result.html).toContain('A &amp; B');
+});
+
 test('normalizeLinksAndFootnotes dedupes repeated URLs', () => {
   const html = '<p>First <a href="https://example.com/a">link 1</a>, then <a href="https://example.com/a">link 2</a>.</p>';
   const result = normalizeLinksAndFootnotes(html);

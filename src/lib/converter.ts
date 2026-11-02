@@ -2,6 +2,15 @@ export function isWeChatInternalLink(href: string): boolean {
   return /^https?:\/\/mp\.weixin\.qq\.com(\/.*)?$/i.test(href.trim());
 }
 
+export function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 export function escapeHtml(input: string): string {
   return input
     .replace(/&/g, '&amp;')
@@ -50,14 +59,16 @@ export function normalizeLinksAndFootnotes(
         return match;
       }
 
-      const trimmedHref = href.trim();
+      const trimmedHref = decodeHtmlEntities(href.trim());
       let index = linkIndexMap.get(trimmedHref);
       if (!index) {
         index = footnotes.length + 1;
         linkIndexMap.set(trimmedHref, index);
+        const rawText = text.replace(/<[^>]+>/g, '').trim();
+        const decodedText = decodeHtmlEntities(rawText) || trimmedHref;
         footnotes.push({
           index,
-          text: text.replace(/<[^>]+>/g, '').trim() || trimmedHref,
+          text: decodedText,
           href: trimmedHref,
         });
       }
