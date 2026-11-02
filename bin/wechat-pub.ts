@@ -8,6 +8,7 @@ import { listCommand } from '../src/commands/list';
 import { initCommand } from '../src/commands/init';
 import { latestCommand } from '../src/commands/latest';
 import { publishDirCommand } from '../src/commands/publish-dir';
+import { exportCommand } from '../src/commands/export';
 import { updateCommand } from '../src/commands/update';
 import { formatErrorWithHints } from '../src/lib/error-hints';
 
@@ -53,6 +54,7 @@ Example Usage:
   $ wechat-pub sync _posts/2024-03-06-hello.md
   $ wechat-pub latest 5 --force
   $ wechat-pub list 10
+  $ wechat-pub export _posts/2024-03-06-hello.md --clip
   $ wechat-pub publish-dir ./wechat-drafts/my-draft
   $ wechat-pub update
   $ wechat-pub update --beta
@@ -117,10 +119,23 @@ program
   });
 
 program
+  .command('export <target>')
+  .description('Export Markdown or draft directory to inlined WeChat HTML or copy directly to clipboard')
+  .option('-c, --clip', 'Copy rich-text HTML into system clipboard (macOS)')
+  .option('-o, --output <path>', 'Output file path for the inlined HTML')
+  .option('--theme <theme>', 'Rendering theme', 'wechat-publisher-legacy')
+  .option('--strict', 'Fail export if any preflight warnings or errors occur')
+  .option('--no-footnotes', 'Do not append references section at the end of the post')
+  .action(async (target, options) => {
+    await runCommand(() => exportCommand(target, options));
+  });
+
+program
   .command('publish-dir <dir>')
   .description('Publish a draft payload directory (one JSON + local images) to WeChat draft box')
   .option('-a, --all', 'Publish all draft subdirectories found under the directory')
   .option('-d, --dry-run', 'Resolve placeholders and validate only; do not call WeChat API')
+  .option('--strict', 'Enforce strict preflight checks (including 2.35:1 cover aspect ratio)')
   .option('-c, --config <path>', 'Path to a custom configuration file', 'wechat.config.yml')
   .action(async (dir, options) => {
     await runCommand(() => publishDirCommand(dir, options));

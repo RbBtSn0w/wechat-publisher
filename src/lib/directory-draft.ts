@@ -36,7 +36,7 @@ function ensureString(input: unknown, field: string): string {
   return input;
 }
 
-function parseLocalPlaceholder(input: string): string | null {
+export function parseLocalPlaceholder(input: string): string | null {
   if (!input.startsWith(LOCAL_PREFIX)) return null;
   const relPath = input.slice(LOCAL_PREFIX.length).trim();
   if (!relPath) {
@@ -45,7 +45,7 @@ function parseLocalPlaceholder(input: string): string | null {
   return relPath;
 }
 
-function resolveLocalFile(directory: string, placeholder: string): string {
+export function resolveLocalFile(directory: string, placeholder: string): string {
   const relPath = parseLocalPlaceholder(placeholder);
   if (!relPath) {
     throw new Error(`Expected local placeholder, got "${placeholder}".`);

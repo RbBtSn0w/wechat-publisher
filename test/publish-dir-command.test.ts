@@ -123,3 +123,31 @@ test('publish-dir --all dry-runs multiple draft subdirectories', async () => {
   expect(logs.join('\n')).toContain('Batch completed: 2 / 2 drafts processed successfully.');
 });
 
+test('publish-dir dry-run resolves news article with local:// body images without false-positive preflight failure', async () => {
+  const draftDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-pub-news-'));
+  fs.writeFileSync(path.join(draftDir, 'cover.png'), 'cover');
+  fs.writeFileSync(path.join(draftDir, 'body.png'), 'body');
+  fs.writeFileSync(
+    path.join(draftDir, 'draft.json'),
+    JSON.stringify({
+      articles: [
+        {
+          article_type: 'news',
+          title: 'News with body image',
+          thumb_media_id: 'local://cover.png',
+          content: '<p>Image: <img src="local://body.png"></p>',
+        },
+      ],
+    })
+  );
+
+  vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  const exitSpy = vi.spyOn(process, 'exit').mockImplementation(code => {
+    throw new Error(`process.exit(${code})`);
+  });
+
+  await publishDirCommand(draftDir, { dryRun: true, config: 'missing.yml' });
+  expect(exitSpy).not.toHaveBeenCalled();
+});
+
+
