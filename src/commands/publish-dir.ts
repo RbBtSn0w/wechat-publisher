@@ -7,10 +7,13 @@ import { ResourceCache } from '../lib/cache';
 import { TEMP_PATHS } from '../lib/constants';
 import {
   discoverDraftDirectories,
+  parseLocalPlaceholder,
   readDraftPayloadFromDirectory,
   resolveDraftPayloadMedia,
+  resolveLocalFile,
 } from '../lib/directory-draft';
 import { formatErrorWithHints } from '../lib/error-hints';
+import { runPreflightCheck } from '../lib/preflight';
 
 export async function publishDirCommand(directory: string, options: any) {
   try {
@@ -44,6 +47,46 @@ export async function publishDirCommand(directory: string, options: any) {
         console.log(`\nProcessing draft directory: ${dirName}`);
       }
 
+      // 1. Dry-run resolve first (offline, no uploader) to validate local files and feed preflight
+      const preview = await resolveDraftPayloadMedia(rawPayload, {
+        directory: draftDir,
+        cache,
+        uploader: undefined,
+        dryRun: true,
+      });
+
+      // 2. Run preflight checks on the preview articles BEFORE any remote uploads
+      for (let i = 0; i < preview.payload.articles.length; i += 1) {
+        const previewArticle = preview.payload.articles[i];
+        const rawArticle = rawPayload.articles[i] || {};
+        const contentStr = typeof previewArticle.content === 'string' ? previewArticle.content : '';
+        const rawThumb = typeof rawArticle.thumb_media_id === 'string' ? rawArticle.thumb_media_id : '';
+
+        let coverLocalPath: string | undefined;
+        if (options.strict && parseLocalPlaceholder(rawThumb)) {
+          coverLocalPath = resolveLocalFile(draftDir, rawThumb);
+        }
+
+        const preflight = await runPreflightCheck({
+          content: contentStr,
+          coverPath: coverLocalPath,
+          strict: Boolean(options.strict),
+        });
+
+        if (preflight.issues.length > 0) {
+          console.log(`\n--- Preflight Check: ${dirName} ---`);
+          for (const issue of preflight.issues) {
+            const tag = issue.severity === 'error' ? '❌ [ERROR]' : '⚠️  [WARN]';
+            console.log(`${tag} ${issue.message}`);
+          }
+        }
+
+        if (!preflight.passed) {
+          throw new Error(`Draft [${dirName}] failed preflight checks. Aborting upload.`);
+        }
+      }
+
+      // 3. Real resolution (only uploads if dryRun is false)
       const { payload, stats } = await resolveDraftPayloadMedia(rawPayload, {
         directory: draftDir,
         cache,

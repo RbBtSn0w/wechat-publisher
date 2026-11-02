@@ -36,7 +36,7 @@ function ensureString(input: unknown, field: string): string {
   return input;
 }
 
-function parseLocalPlaceholder(input: string): string | null {
+export function parseLocalPlaceholder(input: string): string | null {
   if (!input.startsWith(LOCAL_PREFIX)) return null;
   const relPath = input.slice(LOCAL_PREFIX.length).trim();
   if (!relPath) {
@@ -45,7 +45,7 @@ function parseLocalPlaceholder(input: string): string | null {
   return relPath;
 }
 
-function resolveLocalFile(directory: string, placeholder: string): string {
+export function resolveLocalFile(directory: string, placeholder: string): string {
   const relPath = parseLocalPlaceholder(placeholder);
   if (!relPath) {
     throw new Error(`Expected local placeholder, got "${placeholder}".`);
@@ -59,6 +59,14 @@ function resolveLocalFile(directory: string, placeholder: string): string {
   }
   if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
     throw new Error(`Referenced local file not found: ${absPath}`);
+  }
+
+  // Canonical path containment: verify symlink target does not escape baseDir
+  const realBaseDir = fs.realpathSync(baseDir);
+  const realFilePath = fs.realpathSync(absPath);
+  const realRel = path.relative(realBaseDir, realFilePath);
+  if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
+    throw new Error(`Local placeholder targets file outside directory: "${placeholder}".`);
   }
 
   return absPath;

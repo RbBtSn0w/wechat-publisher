@@ -41,6 +41,7 @@ All agents MUST adhere to the principles, boundaries, and workflows defined here
 - **No Swallowed Logs**: Whenever an automated publish step redirects stderr to a temporary log (e.g. `$publish_log`), failure branches MUST emit `cat "$publish_log" >&2` to preserve diagnostics.
 - **Unambiguous Cron Times**: Workflow cron expressions must be accompanied by explicit Beijing time (UTC+8) comments (e.g. `# Every Friday at 15:00 Beijing time (UTC+8) -> 07:00 UTC`).
 - **No Direct Secret Access in Step Conditions**: Never reference `secrets.*` directly inside step-level `if:` conditions. Pass secrets via `env:` and check presence inside the shell runner (e.g. `if [ -z "$MY_SECRET" ]; then exit 0; fi`).
+- **Streaming Subprocess Payloads**: When passing arbitrary-length content (e.g. HTML payloads to clipboard utilities via `osascript`), always stream via `stdin` rather than CLI arguments (`-e`) to prevent OS `ARG_MAX` buffer overflow.
 
 ### Local Pre-Flight Checklist
 Before committing or proposing any code changes, agents MUST run:
@@ -81,6 +82,15 @@ npm run build
 - **Directory Drafts (`publish-dir`)**:
   - Support both single directory mode and batch publishing (`--all`) discovered via `discoverDraftDirectories`.
   - Always support `--dry-run` to validate placeholders and media resolution without calling remote WeChat APIs.
+  - **Pre-Upload Preflight Gate**: Dry-run placeholder resolution and preflight validation MUST execute and pass completely *before* initiating any remote WeChat asset/image uploads, preventing wasted permanent media quota on rejected drafts.
+- **Preflight & Code-Fence Awareness**:
+  - Static scanners checking for placeholders (`[TODO]`, `local://`) MUST be code-fence aware (tracking ```` ``` ````, `~~~`, `<pre>`, and `<code>` blocks) to avoid false-positives on technical code snippets.
+- **Path Containment & Symlink Defense**:
+  - Media and draft path resolution MUST verify canonical path containment using `fs.realpathSync` against the resolved `baseDir` rather than naive relative string prefix matching.
+- **Self-Contained Export Portability**:
+  - The `export` command (both file and clipboard) MUST inline local media as verified Base64 `data:` URIs rather than emitting raw filesystem paths, validating against an allowed image MIME-type whitelist.
+- **Entity Decoding Invariant**:
+  - When extracting link text or titles for footnote generation, decode HTML entities in a single regex pass or ensure `&amp;` is decoded last, preventing multi-pass re-decoding vulnerabilities (e.g. `&amp;lt;` -> `<`).
 - **Media Processing**:
   - Local images (`local://`) are uploaded to WeChat CDN; remote images are downloaded, hashed in `.wechat-cache.json`, and uploaded.
 
