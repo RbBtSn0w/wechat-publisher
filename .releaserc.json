@@ -1,29 +1,40 @@
 {
   "branches": [
-    "main",
-    {
-      "name": "develop",
-      "channel": "beta",
-      "prerelease": "beta"
-    }
+    "main"
   ],
   "plugins": [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
+    "./scripts/commit-semantics.mjs",
     [
-      "@semantic-release/npm",
+      "@semantic-release/commit-analyzer",
       {
-        "npmPublish": true,
-        "provenance": true
+        "preset": "conventionalcommits"
       }
     ],
     [
-      "@semantic-release/git",
+      "@semantic-release/release-notes-generator",
       {
-        "assets": ["package.json", "package-lock.json", "README.md"],
-        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        "preset": "conventionalcommits"
       }
     ],
-    "@semantic-release/github"
+    "./scripts/release-payload.mjs",
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "release-input/final.tgz",
+            "label": "Verified npm archive"
+          },
+          {
+            "path": "release-input/final.json",
+            "label": "Archive identity"
+          },
+          {
+            "path": "release-input/receipts/*.json",
+            "label": "Registry receipt"
+          }
+        ]
+      }
+    ]
   ]
 }

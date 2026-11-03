@@ -1,0 +1,142 @@
+/** Source offsets use UTF-16 indices, matching String.slice and RegExp.exec. */
+export interface SourceRegion {
+  start: number;
+  end: number;
+}
+
+export interface FencedCodeRegion extends SourceRegion {
+  info: string;
+  contentStart: number;
+  contentEnd: number;
+}
+
+export interface SourceScanOptions {
+  markdownInline?: boolean;
+}
+
+function scanRegions(source: string, options: SourceScanOptions = {}): { protected: SourceRegion[]; fences: FencedCodeRegion[] } {
+  const protectedRegions: SourceRegion[] = [];
+  const fences: FencedCodeRegion[] = [];
+  let index = 0;
+  while (index < source.length) {
+    if (index === 0 || source[index - 1] === '\n') {
+      const lineEnd = source.indexOf('\n', index);
+      const end = lineEnd < 0 ? source.length : lineEnd + 1;
+      const opening = source.slice(index, end).match(/^ {0,3}(`{3,}|~{3,})([^\r\n]*)/);
+      if (opening && !(opening[1][0] === '`' && opening[2].includes('`'))) {
+        const closing = new RegExp(`^ {0,3}${opening[1][0]}{${opening[1].length},}[ \\t]*\\r?$`, 'gm');
+        closing.lastIndex = end;
+        const match = closing.exec(source);
+        const regionEnd = match ? match.index + match[0].length + (source[match.index + match[0].length] === '\n' ? 1 : 0) : source.length;
+        const region = { start: index, end: regionEnd, info: opening[2].trim(), contentStart: end, contentEnd: match?.index ?? source.length };
+        protectedRegions.push(region);
+        fences.push(region);
+        index = regionEnd;
+        continue;
+      }
+    }
+    if (source[index] === '<') {
+      if (source.startsWith('<!--', index)) {
+        const closing = source.indexOf('-->', index + 4);
+        const end = closing < 0 ? source.length : closing + 3;
+        protectedRegions.push({ start: index, end });
+        index = end;
+        continue;
+      }
+      const tag = source.slice(index).match(/^<(\/?)([a-z][a-z0-9:-]*)\b/i);
+      if (tag) {
+        let tagEnd = index + tag[0].length;
+        let quote: string | undefined;
+        while (tagEnd < source.length) {
+          const character = source[tagEnd++];
+          if (quote) {
+            if (character === quote) quote = undefined;
+          } else if (character === '"' || character === "'") {
+            quote = character;
+          } else if (character === '>') {
+            break;
+          }
+        }
+        if (!tag[1] && /^(pre|code)$/i.test(tag[2])) {
+          // Consume complete nested tags before considering a code closing tag.
+          let cursor = tagEnd;
+          let end = source.length;
+          while (cursor < source.length) {
+            const next = source.indexOf('<', cursor);
+            if (next < 0) break;
+            const closing = source.slice(next).match(/^<\/(pre|code)\s*>/i);
+            if (closing && closing[1].toLowerCase() === tag[2].toLowerCase()) { end = next + closing[0].length; break; }
+            if (source.startsWith('<!--', next)) {
+              const commentEnd = source.indexOf('-->', next + 4);
+              cursor = commentEnd < 0 ? source.length : commentEnd + 3;
+              continue;
+            }
+            if (!/^<\/?[a-z][a-z0-9:-]*\b/i.test(source.slice(next))) { cursor = next + 1; continue; }
+            cursor = next + 1;
+            let nestedQuote: string | undefined;
+            while (cursor < source.length) {
+              const character = source[cursor++];
+              if (nestedQuote) { if (character === nestedQuote) nestedQuote = undefined; }
+              else if (character === '"' || character === "'") nestedQuote = character;
+              else if (character === '>') break;
+            }
+          }
+          protectedRegions.push({ start: index, end });
+          index = end;
+        } else {
+          // Attributes are tag syntax: comment/code openers within quotes are literal values.
+          index = tagEnd;
+        }
+        continue;
+      }
+    }
+    if (options.markdownInline !== false && source[index] === '`' && (index === 0 || source[index - 1] !== '\\')) {
+      const start = index;
+      while (source[index] === '`') index += 1;
+      const length = index - start;
+      const remainder = source.slice(index);
+      const inBlockQuote = /^ {0,3}>/.test(source.slice(source.lastIndexOf('\n', start - 1) + 1, start));
+      const blockRemainder = inBlockQuote ? remainder.replace(/(\r?\n) {0,3}>[ \t]?/g, match => ' '.repeat(match.length)) : remainder;
+      const boundary = /\r?\n[ \t]*\r?\n|\r?\n {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|>|[-+*][ \t]|\d+[.)][ \t]|<(?:pre|code)\b)/i.exec(blockRemainder);
+      const blockEnd = boundary ? index + boundary.index : source.length;
+      const runs = /`+/g;
+      runs.lastIndex = index;
+      let match: RegExpExecArray | null;
+      while ((match = runs.exec(source))) {
+        if (match.index >= blockEnd) break;
+        if (match[0].length === length) {
+          const end = match.index + length;
+          protectedRegions.push({ start, end });
+          index = end;
+          break;
+        }
+      }
+      continue;
+    }
+    index += 1;
+  }
+  return { protected: protectedRegions, fences };
+}
+
+/** Hide code examples without moving source offsets or line boundaries. */
+export function maskProtectedRegions(source: string, options: SourceScanOptions = {}): string {
+  const characters = source.split('');
+  for (const region of scanRegions(source, options).protected) {
+    for (let index = region.start; index < region.end; index += 1) {
+      if (characters[index] !== '\r' && characters[index] !== '\n') characters[index] = ' ';
+    }
+  }
+  return characters.join('');
+}
+
+export function findFencedCodeRegions(source: string): FencedCodeRegion[] {
+  return scanRegions(source).fences;
+}
+
+export function replaceSourceRegions(source: string, edits: (SourceRegion & { replacement: string })[]): string {
+  let result = source;
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    result = result.slice(0, edit.start) + edit.replacement + result.slice(edit.end);
+  }
+  return result;
+}

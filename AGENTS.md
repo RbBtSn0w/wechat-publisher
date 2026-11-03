@@ -22,13 +22,15 @@ All agents MUST adhere to the principles, boundaries, and workflows defined here
 - **Evidence ladder**:
   1. *Inspected & Planned*: Read-only probing complete; proposal presented; execution halted awaiting approval.
   2. *Locally Verified*: `npm run lint`, `npm test`, and `npm run build` executed and passed cleanly on the working branch.
-  3. *PR Dev Preview Verified*: PR opened targeting `develop`, CI green, ephemeral dev preview package (`<base>-dev.pr<num>.<sha>`) published, and sticky PR comment posted.
+  3. *PR Verified*: Reviewed PR targeting `main` with required CI checks passing.
   4. *Production Verified*: Changes merged by a human into `main` and verified on live workflows.
 
-### Law 4: Dual-Branch Release Train Topology
-- **Trunk (`develop`)**: Active development branch. All feature (`feat/*`), bugfix (`fix/*`), and maintenance (`chore/*`) branches MUST branch from `develop` and target `develop`. Merging to `develop` produces pre-releases on the npm `beta` channel.
-- **Production (`main`)**: Protected stable branch. Exclusively receives automated weekly Friday release train PRs (`develop -> main`). Direct commits, force pushes, or feature PRs targeting `main` are strictly forbidden and rejected by `pr-target.yml`.
-- **Avoid Branch Drift**: Keep working branches synchronized with the latest `origin/develop` to prevent cascading merge conflicts.
+### Law 4: Single-Trunk Release
+- Branch from current `origin/main`; submit reviewed squash PRs to `main`.
+- Keep Conventional Commit title/body and breaking declarations.
+- CI and PRs do not publish. Scheduled/manual stable publication requires
+  `RELEASE_ENABLED == 'true'` and the verified artifact handoff.
+- See `docs/release-train.md` for activation blockers and recovery.
 
 ---
 
@@ -37,10 +39,10 @@ All agents MUST adhere to the principles, boundaries, and workflows defined here
 ### CI/CD Guardrails
 - **No Implicit Audits**: `npm ci` MUST always pass `--no-audit --no-fund` across all workflow files to prevent npm registry advisory API stalls.
 - **No Interactive Headless Deadlocks**: CLI tools executed in automation or subprocesses (e.g. `npx`, `pnpm`) MUST pass non-interactive flags (e.g., `npx --yes`).
-- **Preserve `[skip ci]` on Sync**: The reverse sync workflow (`sync-main-to-develop.yml`) MUST use `git merge --no-ff origin/main` so that fast-forward merges do not discard `-m "... [skip ci]"`, preventing infinite CI loops.
 - **No Swallowed Logs**: Whenever an automated publish step redirects stderr to a temporary log (e.g. `$publish_log`), failure branches MUST emit `cat "$publish_log" >&2` to preserve diagnostics.
 - **Unambiguous Cron Times**: Workflow cron expressions must be accompanied by explicit Beijing time (UTC+8) comments (e.g. `# Every Friday at 15:00 Beijing time (UTC+8) -> 07:00 UTC`).
 - **No Direct Secret Access in Step Conditions**: Never reference `secrets.*` directly inside step-level `if:` conditions. Pass secrets via `env:` and check presence inside the shell runner (e.g. `if [ -z "$MY_SECRET" ]; then exit 0; fi`).
+- **Streaming Subprocess Payloads**: When passing arbitrary-length content (e.g. HTML payloads to clipboard utilities via `osascript`), always stream via `stdin` rather than CLI arguments (`-e`) to prevent OS `ARG_MAX` buffer overflow.
 
 ### Local Pre-Flight Checklist
 Before committing or proposing any code changes, agents MUST run:
@@ -81,8 +83,17 @@ npm run build
 - **Directory Drafts (`publish-dir`)**:
   - Support both single directory mode and batch publishing (`--all`) discovered via `discoverDraftDirectories`.
   - Always support `--dry-run` to validate placeholders and media resolution without calling remote WeChat APIs.
+  - **Pre-Upload Preflight Gate**: Dry-run placeholder resolution and preflight validation MUST execute and pass completely *before* initiating any remote WeChat asset/image uploads, preventing wasted permanent media quota on rejected drafts.
+- **Preflight & Code-Fence Awareness**:
+  - Static scanners checking for placeholders (`[TODO]`, `local://`) MUST be code-fence aware (tracking ```` ``` ````, `~~~`, `<pre>`, and `<code>` blocks) to avoid false-positives on technical code snippets.
+- **Path Containment & Symlink Defense**:
+  - Media and draft path resolution MUST verify canonical path containment using `fs.realpathSync` against the resolved `baseDir` rather than naive relative string prefix matching.
+- **Self-Contained Export Portability**:
+  - The `export` command (both file and clipboard) MUST inline local media as verified Base64 `data:` URIs rather than emitting raw filesystem paths, validating against an allowed image MIME-type whitelist.
+- **Entity Decoding Invariant**:
+  - When extracting link text or titles for footnote generation, decode HTML entities in a single regex pass or ensure `&amp;` is decoded last, preventing multi-pass re-decoding vulnerabilities (e.g. `&amp;lt;` -> `<`).
 - **Media Processing**:
-  - Local images (`local://`) are uploaded to WeChat CDN; remote images are downloaded, hashed in `.wechat-cache.json`, and uploaded.
+  - Local images (`local://`) are uploaded to WeChat CDN; remote images are downloaded and fingerprinted. Upload results use the account/endpoint-scoped `.temp/resource-cache-v2/` cache; the legacy `.wechat-cache.json` is retained without importing credentials.
 
 ---
 

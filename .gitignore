@@ -20,3 +20,7 @@ wechat-drafts/
 .vscode/
 .idea/
 .DS_Store
+
+# Python controller bytecode
+__pycache__/
+*.pyc

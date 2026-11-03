@@ -3,16 +3,21 @@ import path from 'path';
 import { loadConfig } from '../lib/config';
 import { WeChatAPIClient } from '../lib/api-client';
 import { Uploader } from '../lib/uploader';
-import { ResourceCache } from '../lib/cache';
+import { cacheScope, ResourceCache } from '../lib/cache';
 import { TEMP_PATHS } from '../lib/constants';
 import {
   discoverDraftDirectories,
+  parseLocalPlaceholder,
   readDraftPayloadFromDirectory,
   resolveDraftPayloadMedia,
+  resolveLocalFile,
 } from '../lib/directory-draft';
 import { formatErrorWithHints } from '../lib/error-hints';
+import { runPreflightCheck } from '../lib/preflight';
 
-export async function publishDirCommand(directory: string, options: any) {
+interface PublishDirOptions { all?: boolean; dryRun?: boolean; config?: string; strict?: boolean }
+
+export async function publishDirCommand(directory: string, options: PublishDirOptions) {
   try {
     const fullDir = path.resolve(process.cwd(), directory);
     if (!fs.existsSync(fullDir) || !fs.statSync(fullDir).isDirectory()) {
@@ -27,8 +32,8 @@ export async function publishDirCommand(directory: string, options: any) {
       throw new Error(`No valid draft directories found under ${fullDir}.`);
     }
 
-    const cache = new ResourceCache();
     const config = options.dryRun ? undefined : loadConfig(options.config);
+    const cache = new ResourceCache(config ? { scope: cacheScope(config) } : undefined);
     const apiClient = config ? new WeChatAPIClient(config) : undefined;
     const uploader = apiClient ? new Uploader(apiClient) : undefined;
 
@@ -37,6 +42,7 @@ export async function publishDirCommand(directory: string, options: any) {
     }
 
     let successCount = 0;
+    const prepared = [];
     for (const draftDir of targetDirs) {
       const rawPayload = readDraftPayloadFromDirectory(draftDir);
       const dirName = path.basename(draftDir);
@@ -44,11 +50,57 @@ export async function publishDirCommand(directory: string, options: any) {
         console.log(`\nProcessing draft directory: ${dirName}`);
       }
 
-      const { payload, stats } = await resolveDraftPayloadMedia(rawPayload, {
+      // 1. Dry-run resolve first (offline, no uploader) to validate local files and feed preflight
+      const preview = await resolveDraftPayloadMedia(rawPayload, {
+        directory: draftDir,
+        cache,
+        uploader: undefined,
+        dryRun: true,
+        limits: config?.limits,
+      });
+
+      // 2. Run preflight checks on the preview articles BEFORE any remote uploads
+      for (let i = 0; i < preview.payload.articles.length; i += 1) {
+        const previewArticle = preview.payload.articles[i];
+        const rawArticle = rawPayload.articles[i] || {};
+        const contentStr = typeof previewArticle.content === 'string' ? previewArticle.content : '';
+        const rawThumb = typeof rawArticle.thumb_media_id === 'string' ? rawArticle.thumb_media_id : '';
+
+        let coverLocalPath: string | undefined;
+        if (options.strict && parseLocalPlaceholder(rawThumb)) {
+          coverLocalPath = resolveLocalFile(draftDir, rawThumb);
+        }
+
+        const preflight = await runPreflightCheck({
+          content: contentStr,
+          coverPath: coverLocalPath,
+          strict: Boolean(options.strict),
+        });
+
+        if (preflight.issues.length > 0) {
+          console.log(`\n--- Preflight Check: ${dirName} ---`);
+          for (const issue of preflight.issues) {
+            const tag = issue.severity === 'error' ? '❌ [ERROR]' : '⚠️  [WARN]';
+            console.log(`${tag} ${issue.message}`);
+          }
+        }
+
+        if (!preflight.passed) {
+          throw new Error(`Draft [${dirName}] failed preflight checks. Aborting upload.`);
+        }
+      }
+
+      prepared.push({ draftDir, dirName, rawPayload, preview });
+    }
+
+    // No directory starts uploading until the entire selected batch has passed.
+    for (const { draftDir, dirName, rawPayload, preview } of prepared) {
+      const { payload, stats } = options.dryRun ? preview : await resolveDraftPayloadMedia(rawPayload, {
         directory: draftDir,
         cache,
         uploader: options.dryRun ? undefined : uploader,
         dryRun: Boolean(options.dryRun),
+        limits: config?.limits,
       });
 
       if (options.dryRun) {
@@ -71,8 +123,8 @@ export async function publishDirCommand(directory: string, options: any) {
     if (targetDirs.length > 1) {
       console.log(`\n🎉 Batch completed: ${successCount} / ${targetDirs.length} drafts processed successfully.`);
     }
-  } catch (err: any) {
-    console.error(formatErrorWithHints(err.message));
+  } catch (err: unknown) {
+    console.error(formatErrorWithHints(err instanceof Error ? err.message : 'Unknown failure'));
     process.exit(1);
   }
 }
