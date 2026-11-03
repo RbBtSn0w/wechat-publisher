@@ -33,3 +33,17 @@ test('declining a duplicate performs no uploads or draft writes', async () => {
     for (const write of [image, permanent, add, update]) expect(write).not.toHaveBeenCalled();
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('duplicate without media id fails before uploading assets', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-missing-id-'));
+  const post = path.join(directory, 'post.md');
+  fs.writeFileSync(path.join(directory, 'cover.png'), validPng);
+  fs.writeFileSync(post, `---\ntitle: Existing\ncover: ${path.join(directory, 'cover.png')}\n---\nBody`);
+  vi.mocked(loadConfig).mockReturnValue({ appId: directory, appSecret: '', postsDir: '.', assetsDir: directory });
+  vi.spyOn(WeChatAPIClient.prototype, 'getAllDrafts').mockResolvedValue([{ content: { news_item: [{ title: 'Existing' }] } }]);
+  const upload = vi.spyOn(Uploader.prototype, 'uploadPermanentImage');
+  try {
+    await expect(syncCommand(post, { force: true })).rejects.toThrow(/media_id/);
+    expect(upload).not.toHaveBeenCalled();
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});

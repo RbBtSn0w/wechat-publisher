@@ -11,7 +11,14 @@ function payload(root, prefix = '') {
     return statSync(path).isDirectory() ? payload(root, file) : file === 'package.json' ? [] : [[file, digest(path)]];
   });
 }
-export async function prepare(_options, { cwd, nextRelease }) {
+function assertLiveMain(cwd, env) {
+  const candidate = env.CANDIDATE_SHA;
+  if (!/^[a-f0-9]{40}$/.test(candidate || '') || !/^[^/]+\/[^/]+$/.test(env.GITHUB_REPOSITORY || '')) throw Error('Main guard requires candidate and repository');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, env, encoding: 'utf8', timeout: 10000 }).trim();
+  const live = execFileSync('gh', ['api', `repos/${env.GITHUB_REPOSITORY}/git/ref/heads/main`, '--jq', '.object.sha'], { cwd, env, encoding: 'utf8', timeout: 10000 }).trim();
+  if (head !== candidate || live !== candidate) throw Error('Main changed or could not be read; verify a fresh candidate.');
+}
+export async function prepare(_options, { cwd, env = process.env, nextRelease }) {
   const input = join(cwd, 'release-input'), root = join(input, 'unpacked/package');
   const before = JSON.stringify(payload(root));
   const manifestPath = join(root, 'package.json');
@@ -22,9 +29,12 @@ export async function prepare(_options, { cwd, nextRelease }) {
   execFileSync('tar', ['-czf', join(input, 'final.tgz'), '-C', join(input, 'unpacked'), 'package']);
   if (before !== JSON.stringify(payload(root))) throw Error('Prepared payload changed');
   writeFileSync(join(input, 'final.json'), JSON.stringify({ name: manifest.name, version: nextRelease.version, integrity: `sha512-${digest(join(input, 'final.tgz'))}` }));
+  // Last configured prepare hook: semantic-release creates tags only after prepare completes.
+  assertLiveMain(cwd, env);
 }
 
 export async function publish(_options, { cwd, env, nextRelease }) {
+  assertLiveMain(cwd, env);
   const input = join(cwd, 'release-input'), archive = join(input, 'final.tgz');
   const metadata = JSON.parse(readFileSync(join(input, 'final.json'), 'utf8'));
   if (metadata.version !== nextRelease.version || metadata.integrity !== `sha512-${digest(archive)}`) throw Error('Final artifact mismatch');
@@ -43,8 +53,17 @@ export async function publish(_options, { cwd, env, nextRelease }) {
       let error; try { error = JSON.parse(view.stdout).error; } catch { /* fail closed below */ }
       if (error?.code !== 'E404') throw Error(`${target}: registry lookup failed: ${view.stderr}`);
       execFileSync('npm', ['publish', resolve(archive), '--ignore-scripts', '--access', 'public', '--tag', 'latest', '--registry', registry, ...(target === 'npm' ? ['--provenance'] : [])], {cwd: input, env: runEnv, stdio: 'inherit', timeout: 120000});
-      const actual = execFileSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout: 120000 });
-      if (JSON.parse(actual) !== metadata.integrity) throw Error(`${target}: published integrity mismatch`);
+      let verified = false;
+      let detail = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const actual = spawnSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout: 120000 });
+        try { verified = !actual.error && actual.status === 0 && JSON.parse(actual.stdout) === metadata.integrity; }
+        catch { /* Malformed or not-yet-visible registry metadata remains unverified. */ }
+        if (verified) break;
+        detail = actual.error?.message || actual.stderr || actual.stdout;
+        if (attempt < 2) await new Promise(done => setTimeout(done, 1000 * (attempt + 1)));
+      }
+      if (!verified) throw Error(`${target}: published integrity could not be verified: ${detail}`);
     }
     writeFileSync(join(receipts, `${target}.json`), JSON.stringify({...metadata, registry, candidate: env.CANDIDATE_SHA}));
   }

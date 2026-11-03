@@ -45,7 +45,11 @@ export async function syncCommand(postPath: string, options: SyncOptions) {
   let duplicate: { mediaId: string; index: number } | undefined;
   for (const draft of drafts) {
     const index = (draft.content?.news_item || []).findIndex((item: { title?: string }) => item.title === prepared.result.post.title);
-    if (index >= 0) { duplicate = { mediaId: draft.media_id, index }; break; }
+    if (index >= 0) {
+      if (typeof draft.media_id !== 'string' || !draft.media_id.trim()) throw new Error('Matching draft has no usable media_id; no assets uploaded.');
+      duplicate = { mediaId: draft.media_id, index };
+      break;
+    }
   }
   if (duplicate && !options.force && !await promptUser(`Draft with title "${prepared.result.post.title}" already exists. Overwrite? (y/N) `)) {
     console.log('Operation cancelled by user. No assets uploaded.');

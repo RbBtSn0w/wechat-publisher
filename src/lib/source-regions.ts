@@ -58,10 +58,29 @@ function scanRegions(source: string, options: SourceScanOptions = {}): { protect
           }
         }
         if (!tag[1] && /^(pre|code)$/i.test(tag[2])) {
-          const closing = new RegExp(`</${tag[2]}\\s*>`, 'ig');
-          closing.lastIndex = tagEnd;
-          const match = closing.exec(source);
-          const end = match ? match.index + match[0].length : source.length;
+          // Consume complete nested tags before considering a code closing tag.
+          let cursor = tagEnd;
+          let end = source.length;
+          while (cursor < source.length) {
+            const next = source.indexOf('<', cursor);
+            if (next < 0) break;
+            const closing = source.slice(next).match(/^<\/(pre|code)\s*>/i);
+            if (closing && closing[1].toLowerCase() === tag[2].toLowerCase()) { end = next + closing[0].length; break; }
+            if (source.startsWith('<!--', next)) {
+              const commentEnd = source.indexOf('-->', next + 4);
+              cursor = commentEnd < 0 ? source.length : commentEnd + 3;
+              continue;
+            }
+            if (!/^<\/?[a-z][a-z0-9:-]*\b/i.test(source.slice(next))) { cursor = next + 1; continue; }
+            cursor = next + 1;
+            let nestedQuote: string | undefined;
+            while (cursor < source.length) {
+              const character = source[cursor++];
+              if (nestedQuote) { if (character === nestedQuote) nestedQuote = undefined; }
+              else if (character === '"' || character === "'") nestedQuote = character;
+              else if (character === '>') break;
+            }
+          }
           protectedRegions.push({ start: index, end });
           index = end;
         } else {
@@ -76,7 +95,9 @@ function scanRegions(source: string, options: SourceScanOptions = {}): { protect
       while (source[index] === '`') index += 1;
       const length = index - start;
       const remainder = source.slice(index);
-      const boundary = /\r?\n[ \t]*\r?\n|\r?\n {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|>|[-+*][ \t]|\d+[.)][ \t]|<(?:pre|code)\b)/i.exec(remainder);
+      const inBlockQuote = /^ {0,3}>/.test(source.slice(source.lastIndexOf('\n', start - 1) + 1, start));
+      const blockRemainder = inBlockQuote ? remainder.replace(/(\r?\n) {0,3}>[ \t]?/g, match => ' '.repeat(match.length)) : remainder;
+      const boundary = /\r?\n[ \t]*\r?\n|\r?\n {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|>|[-+*][ \t]|\d+[.)][ \t]|<(?:pre|code)\b)/i.exec(blockRemainder);
       const blockEnd = boundary ? index + boundary.index : source.length;
       const runs = /`+/g;
       runs.lastIndex = index;

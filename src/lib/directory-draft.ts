@@ -1,8 +1,9 @@
 import fs from 'fs';
+import { createHash } from 'crypto';
 import path from 'path';
-import { fingerprintFile, ResourceCache } from './cache';
+import { ResourceCache } from './cache';
 import { Uploader } from './uploader';
-import { validateUploadableImage } from './media';
+import { readValidatedUploadImage } from './media';
 import { findResourceOccurrences } from './parser';
 import { replaceSourceRegions } from './source-regions';
 import { runPreflightCheck } from './preflight';
@@ -76,7 +77,7 @@ export function resolveLocalFile(directory: string, placeholder: string): string
     throw new Error(`Local placeholder targets file outside directory: "${placeholder}".`);
   }
 
-  return absPath;
+  return realFilePath;
 }
 
 async function resolvePermanentMediaId(
@@ -84,7 +85,7 @@ async function resolvePermanentMediaId(
   options: ResolveOptions,
   stats: ResolveStats
 ): Promise<string> {
-  await validateUploadableImage(localPath, 'permanent');
+  const bytes = await readValidatedUploadImage(localPath, 'permanent');
   if (options.dryRun) {
     return `DRYRUN_MEDIA_ID_${path.basename(localPath)}`;
   }
@@ -94,8 +95,8 @@ async function resolvePermanentMediaId(
   }
 
   const cacheKey = `perm:${localPath}`;
-  return options.cache.getOrUpload(cacheKey, fingerprintFile(localPath), async () => {
-    const mediaId = await options.uploader!.uploadPermanentImage(localPath);
+  return options.cache.getOrUpload(cacheKey, createHash('sha256').update(bytes).digest('hex'), async () => {
+    const mediaId = await options.uploader!.uploadPermanentImage(localPath, bytes);
     stats.permanentUploadCount += 1;
     return mediaId;
   });
@@ -106,7 +107,7 @@ async function resolveContentImageUrl(
   options: ResolveOptions,
   stats: ResolveStats
 ): Promise<string> {
-  await validateUploadableImage(localPath, 'content');
+  const bytes = await readValidatedUploadImage(localPath, 'content');
   if (options.dryRun) {
     return `DRYRUN_URL_${path.basename(localPath)}`;
   }
@@ -116,8 +117,8 @@ async function resolveContentImageUrl(
   }
 
   const cacheKey = `url:${localPath}`;
-  return options.cache.getOrUpload(cacheKey, fingerprintFile(localPath), async () => {
-    const url = await options.uploader!.uploadImage(localPath);
+  return options.cache.getOrUpload(cacheKey, createHash('sha256').update(bytes).digest('hex'), async () => {
+    const url = await options.uploader!.uploadImage(localPath, bytes);
     stats.contentUploadCount += 1;
     return url;
   });
@@ -303,7 +304,7 @@ export async function resolveDraftPayloadMedia(
     if (!preflight.passed) throw new Error(preflight.issues.map(issue => issue.message).join(' '));
     assertValidArticle({ title: typeof article.title === 'string' ? article.title : '',
       author: typeof article.author === 'string' ? article.author : '',
-      digest: typeof article.digest === 'string' ? article.digest : '', content: String(article.content),
+      digest: typeof article.digest === 'string' ? article.digest : '', content: options.dryRun ? replaceSourceRegions(content, findResourceOccurrences(content, { markdownInline: false }).filter(item => item.path.startsWith(LOCAL_PREFIX)).map(item => ({ ...item, replacement: '' }))) : String(article.content),
       thumbMediaId: typeof article.thumb_media_id === 'string' ? article.thumb_media_id : '', articleType,
     }, options.limits);
   }

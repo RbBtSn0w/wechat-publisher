@@ -206,7 +206,7 @@ test('publish-dir --all stops after an unknown write without uploading subsequen
     expect(add).toHaveBeenCalledTimes(1);
     expect(add.mock.calls[0][0][0].title).toBe('01-first');
     expect(upload).toHaveBeenCalledTimes(1);
-    expect(upload.mock.calls[0][0]).toBe(path.join(root, '01-first', 'image.png'));
+    expect(upload.mock.calls[0][0]).toBe(fs.realpathSync(path.join(root, '01-first', 'image.png')));
     expect(errors.join('\n')).toContain('remote write result is unknown');
     expect(errors.join('\n')).toContain('verify the remote state before retrying');
     expect(logs.join('\n')).not.toContain('Batch completed');

@@ -147,3 +147,22 @@ test('comment-like quoted attributes cannot hide TODO prose before upload', asyn
   expect(uploader.uploadImage).not.toHaveBeenCalled();
   expect(uploader.uploadPermanentImage).not.toHaveBeenCalled();
 });
+
+test('all upload buffers stay bound to their prepared fingerprints across earlier uploads', async () => {
+  fs.copyFileSync(path.join(directory, 'body.png'), path.join(directory, 'second.png'));
+  const original = fs.readFileSync(path.join(directory, 'second.png'));
+  const { post, config } = fixture('![first](body.png)\n![second](second.png)');
+  const prepared = await preparePostWithReport(post, config);
+  const uploaded: Buffer[] = [];
+  const uploader = {
+    uploadImage: vi.fn(async (_path: string, bytes?: Buffer) => {
+      fs.writeFileSync(path.join(directory, 'second.png'), 'changed during earlier upload');
+      uploaded.push(bytes!);
+      return 'https://mmbiz.qpic.cn/body.png';
+    }),
+    uploadPermanentImage: vi.fn(async () => 'cover-id'),
+  };
+  await executePreparedPost(prepared, uploader as unknown as Uploader);
+  expect(uploaded).toHaveLength(2);
+  expect(uploaded[1]).toEqual(original);
+});

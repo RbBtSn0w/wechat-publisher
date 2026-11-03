@@ -12,5 +12,8 @@ jobs:
     steps:
       - env:
           BASE: ${{ github.event.pull_request.base.ref }}
-          HEAD: ${{ github.event.pull_request.head.ref }}
-        run: test "$BASE" = main
+        run: |
+          if [ "$BASE" != main ]; then
+            echo '::error::Pull requests must target main.'
+            exit 1
+          fi

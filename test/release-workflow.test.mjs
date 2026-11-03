@@ -55,3 +55,14 @@ test('artifact restore rejects wrong candidate and changed bytes', () => {
   const result=spawnSync('bash',['-eu','-c',step('release','restore').run],{cwd,env:{...process.env,PATH:bin+':'+process.env.PATH,CANDIDATE_SHA:(mode==='wrong-sha'?'b':'a').repeat(40)}});assert.equal(result.status===0,mode==='valid');
  }
 });
+
+test('PR gates explain rejected targets and lint the actual squash suffix', () => {
+ const target = require('yaml').parse(readFileSync('.github/workflows/pr-target.yml', 'utf8'));
+ const run = target.jobs['check-base-branch'].steps[0].run;
+ const denied = spawnSync('bash', ['-eu', '-c', run], {env: {...process.env, BASE:'develop'}, encoding:'utf8'});
+ assert.notEqual(denied.status, 0); assert.match(denied.stdout + denied.stderr, /::error::.*main/);
+ const semantics = require('yaml').parse(readFileSync('.github/workflows/pr-commit-semantics.yml', 'utf8'));
+ const check = semantics.jobs['commit-message'].steps.at(-1);
+ assert.equal(check.env.PR_NUMBER, '${{ github.event.pull_request.number }}');
+ assert.match(check.run, /printf '%s \(#%s\)/);
+});

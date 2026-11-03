@@ -3,12 +3,8 @@ export function isWeChatInternalLink(href: string): boolean {
 }
 
 export function decodeHtmlEntities(input: string): string {
-  return input
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&');
+  const entities: Record<string, string> = { lt: '<', LT: '<', gt: '>', GT: '>', quot: '"', QUOT: '"', '#39': "'", amp: '&', AMP: '&' };
+  return input.replace(/&(?:lt|LT|gt|GT|quot|QUOT|#39|amp|AMP);/g, entity => entities[entity.slice(1, -1)]);
 }
 
 export function escapeHtml(input: string): string {
@@ -23,7 +19,7 @@ export function escapeHtml(input: string): string {
 export function neuterLinksToSpans(html: string): string {
   // WeChat article content allows internal WeChat article links (mp.weixin.qq.com),
   // while external links are not clickable and converted to styled spans.
-  return html.replace(/<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (match, href, text) => {
+  return html.replace(/<a\s+[^>]*href=(["'])([\s\S]*?)\1[^>]*>([\s\S]*?)<\/a>/gi, (match, _quote, href, text) => {
     if (isWeChatInternalLink(href)) {
       return match;
     }
@@ -53,8 +49,8 @@ export function normalizeLinksAndFootnotes(
   const linkIndexMap = new Map<string, number>();
 
   const transformedHtml = html.replace(
-    /<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi,
-    (match, href, text) => {
+    /<a\s+[^>]*href=(["'])([\s\S]*?)\1[^>]*>([\s\S]*?)<\/a>/gi,
+    (match, _quote, href, text) => {
       if (isWeChatInternalLink(href)) {
         return match;
       }

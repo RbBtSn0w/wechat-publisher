@@ -1,5 +1,5 @@
 import { validPng } from './helpers/image';
-import { expect, test } from 'vitest';
+import { afterEach, expect, test } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -11,8 +11,12 @@ import {
   resolveDraftPayloadMedia,
 } from '../src/lib/directory-draft';
 
+const tempDirs: string[] = [];
+afterEach(() => { for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
 function makeTempDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-pub-draft-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-pub-draft-'));
+  tempDirs.push(dir);
+  return dir;
 }
 
 test('HTML backticks cannot hide body resources or unresolved placeholders', async () => {
@@ -83,7 +87,7 @@ test('resolveDraftPayloadMedia dry-run resolves local placeholders', async () =>
 
   const { payload: resolved, stats } = await resolveDraftPayloadMedia(payload, {
     directory: dir,
-    cache: new ResourceCache({ cacheRoot: path.join(os.tmpdir(), 'wechat-draft-test-cache', path.basename(makeTempDir())) }),
+    cache: new ResourceCache({ cacheRoot: path.join(dir, 'cache') }),
     dryRun: true,
   });
 
@@ -126,7 +130,7 @@ test('resolveDraftPayloadMedia resolves newspic media ids with cache reuse', asy
 
   const { payload: resolved, stats } = await resolveDraftPayloadMedia(payload, {
     directory: dir,
-    cache: new ResourceCache({ cacheRoot: path.join(os.tmpdir(), 'wechat-draft-test-cache', path.basename(makeTempDir())) }),
+    cache: new ResourceCache({ cacheRoot: path.join(dir, 'cache') }),
     uploader: uploader as any,
     dryRun: false,
   });
@@ -139,6 +143,7 @@ test('resolveDraftPayloadMedia resolves newspic media ids with cache reuse', asy
 });
 
 test('resolveDraftPayloadMedia enforces news thumb_media_id', async () => {
+  const dir = makeTempDir();
   const payload = {
     articles: [
       {
@@ -150,8 +155,8 @@ test('resolveDraftPayloadMedia enforces news thumb_media_id', async () => {
 
   await expect(
     resolveDraftPayloadMedia(payload, {
-      directory: makeTempDir(),
-      cache: new ResourceCache({ cacheRoot: path.join(os.tmpdir(), 'wechat-draft-test-cache', path.basename(makeTempDir())) }),
+      directory: dir,
+      cache: new ResourceCache({ cacheRoot: path.join(dir, 'cache') }),
       dryRun: true,
     })
   ).rejects.toThrow(/thumb_media_id/);

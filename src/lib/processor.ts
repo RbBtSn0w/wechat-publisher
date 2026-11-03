@@ -12,11 +12,12 @@ import { FormulaRenderer } from './formula-renderer';
 import { RemoteImageDownloader } from './remote-image';
 import { ArticleValidationError, validateArticle } from './article-validator';
 import { getRepoRoot } from './constants';
-import { validateUploadableImage, resolveContainedFile } from './media';
+import { validateUploadableImage, readValidatedUploadImage, resolveContainedFile } from './media';
 import { validatePlaceholderText } from './preflight';
 import { renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
 import { LEGACY_THEME_NAME } from './theme-registry';
 import path from 'path';
+import { createHash } from 'crypto';
 import fs from 'fs';
 
 export interface MermaidRenderService {
@@ -181,14 +182,17 @@ export async function executePreparedPost(prepared: PreparedPost, uploader: Uplo
   const result: ProcessResult = {
     post: { ...prepared.result.post }, diagnostics: [...prepared.result.diagnostics], stats: { ...prepared.result.stats },
   };
+  const snapshots = new Map<PreparedAsset, Buffer>();
   for (const asset of [...prepared.images, ...(prepared.cover ? [prepared.cover] : [])]) {
-    if (fingerprintFile(asset.localPath) !== asset.fingerprint) throw new Error('Prepared image changed; run preflight again.');
+    const bytes = await readValidatedUploadImage(asset.localPath, asset === prepared.cover ? 'permanent' : 'content');
+    snapshots.set(asset, bytes);
+    if (createHash('sha256').update(bytes).digest('hex') !== asset.fingerprint) throw new Error('Prepared image changed; run preflight again.');
   }
   const cache = new ResourceCache({ scope: cacheScope(config) });
   const replacements: Record<string, string> = {};
   for (const asset of prepared.images) {
     replacements[asset.localPath] = await cache.getOrUpload(`url:${asset.localPath}`, asset.fingerprint, async () => {
-      const url = await uploader.uploadImage(asset.localPath);
+      const url = await uploader.uploadImage(asset.localPath, snapshots.get(asset));
       result.stats.uploadedImages++;
       return url;
     });
@@ -200,7 +204,7 @@ export async function executePreparedPost(prepared: PreparedPost, uploader: Uplo
   if (prepared.cover) {
     const asset = prepared.cover;
     result.post.wechatThumbMediaId = await cache.getOrUpload(`perm:${asset.localPath}`, asset.fingerprint, async () => {
-      const id = await uploader.uploadPermanentImage(asset.localPath);
+      const id = await uploader.uploadPermanentImage(asset.localPath, snapshots.get(asset));
       result.stats.uploadedCovers++;
       return id;
     });

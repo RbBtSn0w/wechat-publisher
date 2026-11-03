@@ -31,6 +31,7 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
 
   let isPreRenderedHtml = false;
   let sourceContent = '';
+  let sourcePath = fullPath;
   let coverPath: string | undefined;
   let mediaBaseDir = path.dirname(fullPath);
 
@@ -44,6 +45,8 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
 
     if (jsonFiles.length === 1) {
       const draftData = readDraftPayloadFromDirectory(fullPath);
+      if (draftData.articles.length !== 1) throw new Error('Export supports one article per draft directory.');
+      sourcePath = path.join(fullPath, jsonFiles[0]);
       const firstArticle = draftData.articles[0] || {};
       sourceContent = typeof firstArticle.content === 'string' ? firstArticle.content : '';
       isPreRenderedHtml = true;
@@ -59,11 +62,12 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
       if (!found) {
         throw new Error(`No draft JSON or markdown file found in directory: ${fullPath}`);
       }
-      const parsed = parseMarkdown(path.join(fullPath, found));
+      sourcePath = path.join(fullPath, found);
+      const parsed = parseMarkdown(sourcePath);
       sourceContent = parsed.contentMarkdown || '';
       if (parsed.localThumbPath) {
         const candidateCover = path.resolve(fullPath, parsed.localThumbPath);
-        if (fs.existsSync(candidateCover)) {
+        if (fs.existsSync(candidateCover) || options.strict) {
           coverPath = candidateCover;
         }
       }
@@ -100,9 +104,10 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
     const base = !local && resource.startsWith('/') ? process.cwd() : mediaBaseDir;
     const relative = local ? resource.slice('local://'.length) : resource.replace(/^\//, '');
     let localPath = relative;
-    if (!isPreRenderedHtml) {
+    {
       try {
-        localPath = decodeURIComponent(relative);
+        const decoded = decodeURIComponent(relative);
+        localPath = fs.existsSync(path.resolve(base, decoded)) ? decoded : relative;
       } catch (error) {
         // The SDK preserves literal percent signs in otherwise valid filenames.
         if (!(error instanceof URIError)) throw error;
@@ -184,6 +189,11 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
   // 4. Output / Clipboard
   if (options.output) {
     const outPath = path.resolve(process.cwd(), options.output);
+    if (fs.existsSync(outPath)) {
+      const source = fs.statSync(sourcePath);
+      const output = fs.statSync(outPath);
+      if (source.dev === output.dev && source.ino === output.ino) throw new Error('Output must not overwrite the source file.');
+    }
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, finalHtml, 'utf8');
     console.log(`✅ Saved formatted HTML to: ${outPath}`);

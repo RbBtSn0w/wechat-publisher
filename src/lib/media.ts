@@ -100,12 +100,12 @@ export async function readPortableImage(filePath: string): Promise<string> {
   if (!['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'].includes(extension)) {
     throw new Error(`Unsupported image format "${extension}" for local image "${filePath}".`);
   }
-  if (extension === '.bmp' && fs.statSync(filePath).size > MAX_BMP_BYTES) {
-    throw new Error('BMP input exceeds the 64 MiB limit');
+  if (fs.statSync(filePath).size > MAX_BMP_BYTES) {
+    throw new Error(`${extension === '.bmp' ? 'BMP' : 'Image'} input exceeds the 64 MiB limit`);
   }
   let bytes: Buffer = fs.readFileSync(filePath);
   if (extension === '.bmp') {
-    if (bytes.length > MAX_BMP_BYTES) throw new Error('BMP input exceeds the 64 MiB limit');
+    if (bytes.length > MAX_BMP_BYTES) throw new Error(`${extension === '.bmp' ? 'BMP' : 'Image'} input exceeds the 64 MiB limit`);
     bytes = await convertBmpToPng(bytes);
   }
   const image = sharp(bytes, { animated: true, failOn: 'warning' });
@@ -123,14 +123,32 @@ export async function readPortableImage(filePath: string): Promise<string> {
 }
 
 /** Validate original upload bytes; callers retain control over upload ordering. */
-export async function validateUploadableImage(filePath: string, kind: 'content' | 'permanent' = 'permanent'): Promise<void> {
+export async function readValidatedUploadImage(filePath: string, kind: 'content' | 'permanent' = 'permanent', snapshot?: Buffer): Promise<Buffer> {
   const formats = kind === 'content' ? ['jpeg', 'png'] : ['jpeg', 'png', 'gif'];
   const extensions = kind === 'content' ? ['.jpg', '.jpeg', '.png'] : ['.jpg', '.jpeg', '.png', '.gif'];
   if (!extensions.includes(path.extname(filePath).toLowerCase())) {
     throw new Error(`Unsupported image format: ${path.extname(filePath)}`);
   }
-  const bytes = fs.readFileSync(filePath);
   const maxBytes = (kind === 'content' ? 1 : 2) * 1024 * 1024;
+  let bytes = snapshot;
+  if (!bytes) {
+    // Bind the upload to one descriptor; never follow a replaced final symlink.
+    const fd = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || (kind === 'content' ? stat.size >= maxBytes : stat.size > maxBytes)) {
+        throw new Error(`Image exceeds ${maxBytes / 1024 / 1024} MiB ${kind} upload limit: ${filePath}`);
+      }
+      bytes = Buffer.alloc(stat.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const count = fs.readSync(fd, bytes, offset, bytes.length - offset, offset);
+        if (!count) throw new Error('Image changed while reading; run preflight again.');
+        offset += count;
+      }
+      if (fs.fstatSync(fd).size !== stat.size) throw new Error('Image changed while reading; run preflight again.');
+    } finally { fs.closeSync(fd); }
+  }
   if (kind === 'content' ? bytes.length >= maxBytes : bytes.length > maxBytes) {
     throw new Error(`Image exceeds ${maxBytes / 1024 / 1024} MiB ${kind} upload limit: ${filePath}`);
   }
@@ -138,4 +156,10 @@ export async function validateUploadableImage(filePath: string, kind: 'content' 
   const metadata = await image.metadata();
   if (!formats.includes(metadata.format || '')) throw new Error(`Unsupported ${kind} upload image format: ${metadata.format || 'unknown'} (${filePath})`);
   await image.raw().toBuffer();
+  return bytes;
+}
+
+/** Validate a path without changing the existing validator return contract. */
+export async function validateUploadableImage(filePath: string, kind: 'content' | 'permanent' = 'permanent'): Promise<void> {
+  await readValidatedUploadImage(filePath, kind);
 }

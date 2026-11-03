@@ -48,7 +48,8 @@ is retained inactive; branch deletion is a separate owner action.
 npm ci --no-audit --no-fund
 npm run build
 npm test
-npm pack --ignore-scripts --pack-destination /absolute/scratch
+npm pack --ignore-scripts --json --pack-destination /absolute/scratch > /absolute/scratch/pack.json
+node -e 'const fs=require("fs"),path=require("path");const dir="/absolute/scratch";const [{filename}]=JSON.parse(fs.readFileSync(path.join(dir,"pack.json")));fs.renameSync(path.join(dir,filename),path.join(dir,"package.tgz"));'
 npm run test:package -- /absolute/scratch/package.tgz
 node --test test/release-payload.test.mjs
 ```
@@ -69,3 +70,14 @@ A local semantic-release dry-run against a temporary mirror of real history/tags
 (no service plugins or credentials) selected `v1.3.0` and rejected commit
 `c17f9020a9e66803f9d4461315f7b8f25c9db54f` with empty Conventional Commit type/subject. This is
 expected fail-closed evidence, not a successful release or an activation waiver.
+
+The final configured `prepare` hook checks local HEAD and live main again after
+archive assembly. semantic-release awaits all prepare hooks before creating and
+pushing tags; the registry publish hook also rechecks main before any registry
+write. These checks fail closed on failed/empty reads or drift. Verification and
+GitHub's tag push are separate operations, so a small non-atomic gap remains;
+this does not provide an atomic main-and-tag transaction.
+
+Post-publish metadata reads tolerate bounded registry visibility delays without
+repeating the publish write. Receipts are written only after integrity matches;
+exhausted visibility checks remain a partial-release failure requiring recovery.

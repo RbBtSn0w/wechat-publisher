@@ -44,37 +44,27 @@ function decodePlaceholderEntities(content: string): string {
   });
 }
 
-function scanPlaceholderText(content: string, options: SourceScanOptions, kind: 'all' | 'text' = 'all', checks: { decodeEntities?: boolean; seen?: Set<RegExp>; exclude?: ReadonlySet<RegExp> } = {}): PreflightIssue[] {
+function scanPlaceholderText(content: string, options: SourceScanOptions, kind: 'all' | 'text' = 'all', checks: { decodeEntities?: boolean; seen?: Map<string, number>; exclude?: Map<string, number> } = {}): PreflightIssue[] {
   const issues: PreflightIssue[] = [];
   const visible = maskProtectedRegions(content, options);
   const lines = (checks.decodeEntities ? decodePlaceholderEntities(visible) : visible).split(/\r?\n/);
-
   lines.forEach((visibleProse, idx) => {
     const lineNum = idx + 1;
-
-    for (const { pattern, desc, local } of errorPatterns) {
-      if (kind === 'text' && local) continue;
-      if (pattern.test(visibleProse) && !checks.exclude?.has(pattern)) {
-        checks.seen?.add(pattern);
-        issues.push({
-          severity: 'error',
-          line: lineNum,
-          message: `${desc} at line ${lineNum}`,
-        });
-      }
-    }
-    for (const { pattern, desc } of warningPatterns) {
-      if (pattern.test(visibleProse) && !checks.exclude?.has(pattern)) {
-        checks.seen?.add(pattern);
-        issues.push({
-          severity: 'warning',
-          line: lineNum,
-          message: `${desc} at line ${lineNum}`,
-        });
+    const context = visibleProse.replace(/<[^>]*>/g, '').trim();
+    for (const rule of [...errorPatterns.map(rule => ({ ...rule, severity: 'error' as const })),
+      ...warningPatterns.map(rule => ({ ...rule, local: false, severity: 'warning' as const }))]) {
+      if (kind === 'text' && rule.local) continue;
+      for (const match of visibleProse.matchAll(new RegExp(rule.pattern.source, 'gi'))) {
+        // Deduplicate only matching occurrences on an unchanged visible line.
+        // Rendering may erase one source placeholder while revealing another.
+        const identity = JSON.stringify([lineNum, match[0], context]);
+        const remaining = checks.exclude?.get(identity) || 0;
+        if (remaining) { checks.exclude!.set(identity, remaining - 1); continue; }
+        checks.seen?.set(identity, (checks.seen.get(identity) || 0) + 1);
+        issues.push({ severity: rule.severity, line: lineNum, message: `${rule.desc} at line ${lineNum}` });
       }
     }
   });
-
   return issues;
 }
 
@@ -151,7 +141,7 @@ export async function runPreflightCheck(options: {
   // 1. Text placeholders check
   if (options.sourceMarkdown !== undefined) {
     // Rendering can remove placeholder syntax from link labels; media must be checked after resolution.
-    const sourceRules = new Set<RegExp>();
+    const sourceRules = new Map<string, number>();
     issues.push(...scanPlaceholderText(options.sourceMarkdown, {}, 'text', { seen: sourceRules }));
     issues.push(...scanPlaceholderText(options.content, { markdownInline: false }, 'all', { decodeEntities: true, exclude: sourceRules }));
   } else {
