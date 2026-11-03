@@ -40,6 +40,29 @@ rotate them; retention/garbage collection requires a separate owner decision.
 Only trusted default-branch controller code runs on the persistent runner. PR
 builds never execute on it. Events are wakeups, not authority or command payloads.
 
+## npm publication identity
+
+Stable, beta and same-repository PR previews publish from `release.yml`. Keep
+this filename: the existing npm trusted publisher binds the GitHub repository
+and workflow filename, not the displayed job name. Moving a publish job to
+`ci.yml` changes its OIDC identity and can fail with `ENEEDAUTH` even when
+`id-token: write` is present. `--provenance` alone is not authentication.
+
+In npm package settings for `@rbbtsn0w/wechat-publisher`, verify the GitHub
+publisher uses owner `RbBtSn0w`, repository `wechat-publisher`, workflow
+`release.yml`, and permits direct `npm publish`. No environment is configured
+by these jobs. Do not replace a working publisher or create a token merely to
+rename a workflow. GitHub-hosted publication requires npm >=11.5.1 and Node
+>=22.14.0; these workflows use Node 24. An explicitly supplied `NPM_TOKEN`
+remains supported, but is not required for the configured OIDC identity.
+
+Preview publication runs its own lint, tests, build and package smoke on the
+exact same-repository PR head before publishing `next`. Its per-PR concurrency
+group is separate from the stable/beta lifecycle group. Check the real package
+version and registry before rerunning a failed publish; do not infer successful
+authentication from a dry run. Verbose npm output records OIDC exchange failures
+without printing credential values.
+
 ## Human promotion and synchronization
 
 Friday proposals run at 15:00 Beijing time (UTC+8), 07:00 UTC. The proposal checks

@@ -37,13 +37,37 @@ test('promotion is proposal only with semantic no-op check and body file', () =>
 
 test('release output gates mirror and lifecycle writes serialize across workflows', () => {
   const release = workflow('release');
-  expect(release.concurrency).toEqual({ group: 'wechat-publisher-lifecycle', 'cancel-in-progress': false, queue: 'max' });
+  const lifecycleConcurrency = release.jobs.release.concurrency;
+  expect(lifecycleConcurrency).toEqual({ group: 'wechat-publisher-lifecycle', 'cancel-in-progress': false, queue: 'max' });
   const steps = release.jobs.release.steps;
   expect(steps.find((step: any) => step.id === 'semantic').run).toContain('scripts/release.mjs');
   expect(steps.find((step: any) => step.name === 'Mirror to GitHub Packages').if).toBe("steps.semantic.outputs.released == 'true'");
   expect(read('.github/workflows/release.yml')).not.toContain('git merge');
-  expect(workflow('scheduled-release-pr').concurrency).toEqual(release.concurrency);
-  expect(workflow('sync-main-to-develop').concurrency).toEqual(release.concurrency);
+  expect(workflow('scheduled-release-pr').concurrency).toEqual(lifecycleConcurrency);
+  expect(workflow('sync-main-to-develop').concurrency).toEqual(lifecycleConcurrency);
+});
+
+test('preview publishes from the existing trusted release workflow with its own validation and queue', () => {
+  const release = workflow('release');
+  expect(release.on.pull_request.branches).toEqual(['develop']);
+  expect(release.on).not.toHaveProperty('pull_request_target');
+  expect(workflow('ci').jobs).not.toHaveProperty('pr-dev-release');
+  const preview = release.jobs['pr-dev-release'];
+  expect(preview.if).toContain("github.event_name == 'pull_request'");
+  expect(preview.if).toContain('github.event.pull_request.head.repo.full_name == github.repository');
+  expect(preview['runs-on']).toBe('ubuntu-latest');
+  expect(preview.permissions.contents).toBe('read');
+  expect(preview.permissions['id-token']).toBe('write');
+  expect(preview.concurrency.group).not.toBe(release.jobs.release.concurrency.group);
+  expect(preview.concurrency['cancel-in-progress']).toBe(true);
+  const steps = preview.steps;
+  const publishIndex = steps.findIndex((step: any) => step.id === 'npm_publish');
+  const beforePublish = steps.slice(0, publishIndex).map((step: any) => step.run || '').join('\n');
+  for (const check of ['npm run lint', 'npm test', 'npm run build', 'npm run test:package']) expect(beforePublish).toContain(check);
+  const checkout = steps.find((step: any) => step.uses?.startsWith('actions/checkout@'));
+  expect(checkout.with.ref).toBe('${{ github.event.pull_request.head.sha }}');
+  expect(steps[publishIndex].run).toContain('npm publish --provenance --tag next --access public');
+  expect(release.jobs.release.if).toContain("github.event_name != 'pull_request'");
 });
 
 test('trusted lifecycle controller is opt-in, uses dedicated runner and independent polling', () => {
