@@ -1,189 +1,175 @@
-name: Release
+name: Scheduled Release
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [develop]
+  schedule:
+    # Friday 15:00 Asia/Singapore (UTC+8) -> 07:00 UTC.
+    - cron: '0 7 * * 5'
   workflow_dispatch:
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  packages: write
-  id-token: write
+  contents: read
+
+env:
+  TZ: Asia/Singapore
+  CI: 'true'
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Release
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    concurrency:
-      group: wechat-publisher-lifecycle
-      cancel-in-progress: false
-      queue: max
+  verify:
+    if: vars.RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Lint and Test
-        run: |
-          npm run lint
-          npm test
-      - name: Build and verify package
-        run: |
-          npm run build
-          npm run test:package
-      - name: Semantic Release
-        id: semantic
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: node scripts/release.mjs
-      - name: Mirror to GitHub Packages
-        if: steps.semantic.outputs.released == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_VERSION: ${{ steps.semantic.outputs.version }}
-          RELEASE_CHANNEL: ${{ steps.semantic.outputs.channel }}
-          RELEASE_GIT_HEAD: ${{ steps.semantic.outputs.git_head }}
-        run: node scripts/publish-mirror.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$RELEASE_GIT_HEAD"
-
-  pr-dev-release:
-    name: PR Dev Preview Release
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.base.ref == 'develop' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    concurrency:
-      group: wechat-publisher-preview-${{ github.event.pull_request.number }}
-      cancel-in-progress: false
+    timeout-minutes: 30
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
-      packages: write
-      id-token: write
+    outputs:
+      artifact-id: ${{ steps.artifact.outputs.artifact-id }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Validate release entrypoint
+        id: gate
+        shell: bash
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$RELEASE_REF" != 'refs/heads/main' ]; then
+            echo '::error::Release requires main.'
+            exit 1
+          fi
+          case "$RELEASE_EVENT" in
+            schedule|workflow_dispatch) ;;
+            *) echo '::error::Unsupported release event.'; exit 1 ;;
+          esac
+
+      - name: Checkout candidate and release history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          persist-credentials: false
+
+      - name: Set up release-compatible Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: "24"
-          registry-url: https://registry.npmjs.org
-          cache: npm
-      - name: Install dependencies
+          node-version: '24'
+
+      - name: Use trusted-publishing npm
+        run: npm install -g npm@11.21.0 --ignore-scripts
+
+      - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
-      - name: Lint and Test
+
+      # Adapt checks/build and define test:package to exercise the packed public API.
+      - name: Verify candidate
+        id: verify
+        timeout-minutes: 15
         run: |
           npm run lint
-          npm test
-      - name: Build and verify package
-        run: |
+          npm test -- --testTimeout=15000
           npm run build
-          npm run test:package
-      - name: Calculate Dev Version
-        id: versioning
-        run: |
-          git fetch --quiet origin main develop --tags
-          node scripts/preview-version.mjs
+          node --test test/release-*.test.mjs
+
+      - name: Pack and validate actual package
+        id: package
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      - name: Publish to npm (next dist-tag)
-        id: npm_publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_LOGLEVEL: verbose
-          RELEASE_GIT_HEAD: ${{ github.event.pull_request.head.sha }}
+          NPM_CONFIG_IGNORE_SCRIPTS: 'true'
+          CANDIDATE_SHA: ${{ github.sha }}
         run: |
-          set -euo pipefail
-          node scripts/publish-preview.mjs "$RELEASE_GIT_HEAD"
-          echo "npm_published=true" >> "$GITHUB_OUTPUT"
-      - name: Mirror to GitHub Packages
-        id: gh_packages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_VERSION: ${{ steps.versioning.outputs.dev_version }}
-          RELEASE_GIT_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          node scripts/publish-mirror.mjs "$RELEASE_VERSION" next "$RELEASE_GIT_HEAD"
-          echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
-      - name: Post or Update PR Comment
-        if: always() && !cancelled() && (steps.npm_publish.outputs.npm_published == 'true' || steps.gh_packages.outputs.gh_packages_published == 'true')
-        uses: actions/github-script@v7
+          mkdir -p release-input
+          npm pack --ignore-scripts --json --pack-destination release-input > "$RUNNER_TEMP/pack.json"
+          node -e 'const fs=require("fs"),path=require("path");const rows=JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP,"pack.json")));if(rows.length!==1)throw Error("Expected one package");fs.renameSync(path.join("release-input",rows[0].filename),"release-input/package.tgz");'
+          npx --no-install publint release-input/package.tgz --strict
+          (cd release-input && shasum -a 256 package.tgz > package.tgz.sha256)
+          npm run test:package -- "$PWD/release-input/package.tgz"
+          (cd release-input && shasum -a 256 -c package.tgz.sha256)
+          printf '%s\n' "$CANDIDATE_SHA" > release-input/candidate.sha
+
+      - name: Hand off verified package
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            const pkgName = pkg.name || 'pkg';
-            const devVersion = '${{ steps.versioning.outputs.dev_version }}';
-            const npmPublished = '${{ steps.npm_publish.outputs.npm_published }}' === 'true';
-            const ghPublished = '${{ steps.gh_packages.outputs.gh_packages_published }}' === 'true';
+          name: npm-package-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-input/
+          if-no-files-found: error
+          retention-days: 7
 
-            const commentHeader = '### 🚀 PR Dev Preview Released';
-            const registries = [];
-            if (npmPublished) {
-              registries.push(`| **npm** | \`${pkgName}@${devVersion}\` | \`next\` |`);
-            }
-            if (ghPublished) {
-              registries.push(`| **GitHub Packages** | \`${pkgName}@${devVersion}\` | \`next\` |`);
-            }
+  release:
+    needs: [verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: vars.RELEASE_ENABLED == 'true' && needs.verify.result == 'success' && needs.verify.outputs.artifact-id != ''
+    permissions:
+      packages: write
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout candidate and release history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-            const body = [
-              commentHeader,
-              '',
-              'A temporary development build has been published for testing and acceptance verification:',
-              '',
-              '| Registry | Package / Version | Dist-tag |',
-              '| :--- | :--- | :--- |',
-              ...registries,
-              '',
-              '#### 🛠️ Quick Verification Options',
-              '```bash',
-              `# Upgrade using wechat-pub update:`,
-              `wechat-pub update --dev`,
-              '',
-              `# Or verify exact version via npx:`,
-              `npx --yes ${pkgName}@${devVersion} --version`,
-              '```',
-            ].join('\n');
+      - name: Set up release-compatible Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
+      - name: Use trusted-publishing npm
+        run: npm install -g npm@11.21.0 --ignore-scripts
 
-            const botComment = comments.find(c => c.user && c.user.type === 'Bot' && c.body && c.body.includes(commentHeader));
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund --ignore-scripts
+
+      - name: Download this run's verified package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact-id }}
+          path: release-input
+          merge-multiple: true
+
+      - name: Verify and restore package payload
+        id: restore
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          test "$(cat release-input/candidate.sha)" = "$CANDIDATE_SHA"
+          (cd release-input && shasum -a 256 -c package.tgz.sha256)
+          mkdir -p release-input/unpacked
+          tar -xzf release-input/package.tgz -C release-input/unpacked
+          npx --no-install publint release-input/unpacked/package --pack false --strict
+
+      - name: Publish verified candidate
+        id: publish
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # npm may update package.json's version, but must never rebuild the payload.
+          NPM_CONFIG_IGNORE_SCRIPTS: 'true'
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          live_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [ -z "$live_sha" ] || [ "$live_sha" != "$CANDIDATE_SHA" ]; then
+            echo '::error::Main changed or could not be read; rerun verification on a fresh candidate.'
+            exit 1
+          fi
+          npx --no-install semantic-release
+          if test -f release-input/released-version; then echo 'released=true' >> "$GITHUB_OUTPUT"; fi
+
+      - name: Preserve final payload and per-target receipts
+        if: always() && steps.publish.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-receipts-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            release-input/final.tgz
+            release-input/final.json
+            release-input/receipts/
+          if-no-files-found: warn
+          retention-days: 30

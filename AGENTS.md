@@ -22,13 +22,15 @@ All agents MUST adhere to the principles, boundaries, and workflows defined here
 - **Evidence ladder**:
   1. *Inspected & Planned*: Read-only probing complete; proposal presented; execution halted awaiting approval.
   2. *Locally Verified*: `npm run lint`, `npm test`, and `npm run build` executed and passed cleanly on the working branch.
-  3. *PR Dev Preview Verified*: PR opened targeting `develop`, CI green, ephemeral dev preview package (`<base>-dev.pr<num>.<sha>`) published, and sticky PR comment posted.
+  3. *PR Verified*: Reviewed PR targeting `main` with required CI checks passing.
   4. *Production Verified*: Changes merged by a human into `main` and verified on live workflows.
 
-### Law 4: Dual-Branch Release Train Topology
-- **Trunk (`develop`)**: Active development branch. All feature (`feat/*`), bugfix (`fix/*`), and maintenance (`chore/*`) branches MUST branch from `develop` and target `develop`. Merging to `develop` produces pre-releases on the npm `beta` channel.
-- **Production (`main`)**: Protected stable branch. Exclusively receives automated weekly Friday release train PRs (`develop -> main`). Direct commits, force pushes, or feature PRs targeting `main` are strictly forbidden and rejected by `pr-target.yml`.
-- **Avoid Branch Drift**: Keep working branches synchronized with the latest `origin/develop` to prevent cascading merge conflicts.
+### Law 4: Single-Trunk Release
+- Branch from current `origin/main`; submit reviewed squash PRs to `main`.
+- Keep Conventional Commit title/body and breaking declarations.
+- CI and PRs do not publish. Scheduled/manual stable publication requires
+  `RELEASE_ENABLED == 'true'` and the verified artifact handoff.
+- See `docs/release-train.md` for activation blockers and recovery.
 
 ---
 
@@ -37,7 +39,6 @@ All agents MUST adhere to the principles, boundaries, and workflows defined here
 ### CI/CD Guardrails
 - **No Implicit Audits**: `npm ci` MUST always pass `--no-audit --no-fund` across all workflow files to prevent npm registry advisory API stalls.
 - **No Interactive Headless Deadlocks**: CLI tools executed in automation or subprocesses (e.g. `npx`, `pnpm`) MUST pass non-interactive flags (e.g., `npx --yes`).
-- **Preserve `[skip ci]` on Sync**: The reverse sync workflow (`sync-main-to-develop.yml`) MUST use the shared reviewed-PR controller. A human merges the recorded sync PR with a merge commit containing `[skip ci]`; agents never merge or directly update either trunk.
 - **No Swallowed Logs**: Whenever an automated publish step redirects stderr to a temporary log (e.g. `$publish_log`), failure branches MUST emit `cat "$publish_log" >&2` to preserve diagnostics.
 - **Unambiguous Cron Times**: Workflow cron expressions must be accompanied by explicit Beijing time (UTC+8) comments (e.g. `# Every Friday at 15:00 Beijing time (UTC+8) -> 07:00 UTC`).
 - **No Direct Secret Access in Step Conditions**: Never reference `secrets.*` directly inside step-level `if:` conditions. Pass secrets via `env:` and check presence inside the shell runner (e.g. `if [ -z "$MY_SECRET" ]; then exit 0; fi`).

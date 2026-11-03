@@ -3,11 +3,9 @@ on:
   pull_request:
     branches:
       - main
-      - develop
   push:
     branches:
       - main
-      - develop
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -34,7 +32,10 @@ jobs:
       - name: Build
         run: npm run build
       - name: Verify isolated package
-        run: npm run test:package
+        run: |
+          mkdir -p "$RUNNER_TEMP/packed"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/packed"
+          npm run test:package -- "$RUNNER_TEMP"/packed/*.tgz
       - name: Verify CLI and Update Command
         run: |
           node dist/bin/wechat-pub.js --help

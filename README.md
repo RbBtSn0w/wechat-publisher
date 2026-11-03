@@ -37,22 +37,14 @@
 
 ### 开发者发布流 (CI/CD & Semantic Release)
 ```text
-Feature/Fix PR -> develop -> beta package
-                      |
-         Friday promotion proposal
-                      |
-       Human review of exact head/base
-                      |
-                    main -> stable package
-                      |
-          Recorded synchronization PR
-                      |
-       Human merge -> queue validation
-                      |
-                   develop
+Feature/Fix branch -> reviewed squash PR -> main
+                                         |
+                           Friday/manual verification
+                                         |
+                       default-off stable publication
 ```
 
-发布提案和同步 PR 均等待维护者合并；普通 CI 使用 GitHub-hosted runner，生命周期协调使用专用持久 runner。npm 与 GitHub Packages 的稳定版、预发布版、PR 预览分别使用 `latest`、`beta`、`next`。版本由发布标签和产物记录，发布任务不再直接回写分支版本提交。接入、人工批准、HOLD 和恢复流程见 [Release train runbook](docs/release-train.md)。
+`main` 是唯一集成分支；普通 CI 与 PR 不发布。周五 07:00 UTC（北京时间 15:00）和手动入口复用候选验证与产物校验，稳定包通过同一归档发布到 npm 与 GitHub Packages。只有显式配置 `RELEASE_ENABLED=true` 才能启用；历史提交校验阻塞解除前保持禁用。版本和标签仅由 semantic-release 计算，不再运行 promotion、sync、beta 或 PR preview 发布。启用前置条件和部分发布恢复见 [Release train runbook](docs/release-train.md)。
 
 ### 写入安全与本地预检
 

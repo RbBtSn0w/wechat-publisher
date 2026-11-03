@@ -219,3 +219,12 @@ test('resource and math replacement preserves protected examples and identical p
 test('unsupported scanner ignores multiline HTML and variable backtick spans', () => {
   expect(findUnsupportedMarkdown('<code>\n[^example]\n</code> ``[^example] ` x``')).toEqual([]);
 });
+
+test.each([
+  '<img data-src="placeholder.png" src="cover.png">',
+  '<img alt="a > b" src="cover.png">',
+])('HTML image scanning preserves exact src boundaries: %s', source => {
+  expect(extractImagePaths(source)).toEqual(['cover.png']);
+  expect(replaceImagePaths(source, { 'cover.png': 'https://wechat.example/cover.png' }))
+    .toBe(source.replace('src="cover.png"', 'src="https://wechat.example/cover.png"'));
+});

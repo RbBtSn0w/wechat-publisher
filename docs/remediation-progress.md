@@ -1,5 +1,9 @@
 # Remediation acceptance and remaining rollout
 
+> Historical record: release-controller, preview, promotion and sync instructions below
+> are superseded by `release-train.md`. PR #21 business changes are now included
+> at develop `6a666b1`; do not execute the obsolete rollout steps.
+
 Evidence date: 2026-11-03 (Asia/Shanghai). This record tracks the original eight
 implementation phases. Local verification, staged infrastructure and observed
 production behavior are separate acceptance levels.

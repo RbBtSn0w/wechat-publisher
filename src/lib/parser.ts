@@ -120,10 +120,35 @@ export function replaceMathExpressions(markdown: string, replacements: Record<st
 
 export interface ResourceOccurrence { path: string; start: number; end: number; bareMarkdown?: boolean }
 
+function htmlImageSource(tag: string): { path: string; offset: number } | undefined {
+  let cursor = 4; // Skip the complete img tag name, retaining original source offsets.
+  while (cursor < tag.length) {
+    while (/[\t\n\f\r /]/.test(tag[cursor] ?? '')) cursor += 1;
+    if (cursor >= tag.length || tag[cursor] === '>') return undefined;
+    const nameStart = cursor;
+    while (cursor < tag.length && !/[\t\n\f\r />=]/.test(tag[cursor])) cursor += 1;
+    const name = tag.slice(nameStart, cursor).toLowerCase();
+    while (/[\t\n\f\r ]/.test(tag[cursor] ?? '')) cursor += 1;
+    if (tag[cursor] !== '=') {
+      if (cursor === nameStart) cursor += 1;
+      continue;
+    }
+    cursor += 1;
+    while (/[\t\n\f\r ]/.test(tag[cursor] ?? '')) cursor += 1;
+    const quote = tag[cursor] === '"' || tag[cursor] === "'" ? tag[cursor++] : undefined;
+    const valueStart = cursor;
+    // Attribute contents are opaque: src text inside another value is not an attribute.
+    while (cursor < tag.length && (quote ? tag[cursor] !== quote : !/[\t\n\f\r >]/.test(tag[cursor]))) cursor += 1;
+    if (name === 'src') return { path: tag.slice(valueStart, cursor), offset: valueStart };
+    if (quote && tag[cursor] === quote) cursor += 1;
+  }
+  return undefined;
+}
+
 function imageOccurrences(markdown: string, options: SourceScanOptions = {}): ResourceOccurrence[] {
   const visible = maskProtectedRegions(markdown, options);
   const occurrences: ResourceOccurrence[] = [];
-  const pattern = /!\[[^\]]*\]\(\s*(?:<([^>\r\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)|<img\b[^>]*>/gi;
+  const pattern = /!\[[^\]]*\]\(\s*(?:<([^>\r\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)|<img(?=[\s/>])(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(visible))) {
     let resource = match[1] ?? match[2];
@@ -133,12 +158,10 @@ function imageOccurrences(markdown: string, options: SourceScanOptions = {}): Re
       while (/\s/.test(match[0][offset])) offset += 1;
       if (match[0][offset] === '<') offset += 1;
     } else {
-      const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(match[0]);
+      const src = htmlImageSource(match[0]);
       if (!src) continue;
-      resource = src[1] ?? src[2] ?? src[3];
-      offset = src.index + src[0].indexOf('=') + 1;
-      while (/\s/.test(match[0][offset])) offset += 1;
-      if (/['"]/.test(match[0][offset])) offset += 1;
+      resource = src.path;
+      offset = src.offset;
     }
     const start = match.index + offset;
     occurrences.push({ path: resource, start, end: start + resource.length, bareMarkdown: match[2] !== undefined });
