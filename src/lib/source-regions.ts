@@ -36,6 +36,13 @@ function scanRegions(source: string, options: SourceScanOptions = {}): { protect
       }
     }
     if (source[index] === '<') {
+      if (source.startsWith('<!--', index)) {
+        const closing = source.indexOf('-->', index + 4);
+        const end = closing < 0 ? source.length : closing + 3;
+        protectedRegions.push({ start: index, end });
+        index = end;
+        continue;
+      }
       const opening = source.slice(index).match(/^<(pre|code)\b[^>]*>/i);
       if (opening) {
         const closing = new RegExp(`</${opening[1]}\\s*>`, 'ig');

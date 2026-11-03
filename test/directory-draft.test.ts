@@ -29,6 +29,19 @@ test('HTML backticks cannot hide body resources or unresolved placeholders', asy
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('HTML comment examples do not hide draft images or TODO preflight', async () => {
+  const dir = makeTempDir();
+  try {
+    fs.writeFileSync(path.join(dir, 'body.png'), validPng);
+    const options = { directory: dir, cache: new ResourceCache({ cacheRoot: path.join(dir, 'cache') }), dryRun: true };
+    const content = '<!-- <code> local://example.png -->\n<img src="local://body.png">';
+    const result = await resolveDraftPayloadMedia({ articles: [{ content, thumb_media_id: 'existing' }] }, options);
+    expect(result.payload.articles[0].content).toContain('src="DRYRUN_URL_body.png"');
+    expect(result.payload.articles[0].content).toContain('<!-- <code> local://example.png -->');
+    await expect(resolveDraftPayloadMedia({ articles: [{ content: '<!-- <pre> -->\n<p>[TODO]</p>', thumb_media_id: 'existing' }] }, options)).rejects.toThrow(/TODO/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('permanent GIF drafts remain valid but body GIFs fail before any upload', async () => {
   const dir = makeTempDir();
   try {

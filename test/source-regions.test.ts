@@ -18,3 +18,10 @@ test('nested Mermaid examples remain protected while longer closing fences work'
   const source = ['````markdown', '```mermaid', 'A-->B', '```', '````', '~~~mermaid', 'C-->D', '~~~~'].join('\n');
   expect(extractMermaidBlocks(source)).toEqual(['C-->D']);
 });
+
+test('HTML comments cannot open protected code regions over following prose', () => {
+  const source = '<!-- <code> local://example.png -->\n<img src="local://real.png">';
+  expect(findResourceOccurrences(source, { markdownInline: false }).map(item => item.path)).toEqual(['local://real.png']);
+  expect(maskProtectedRegions(source)).toContain('<img src="local://real.png">');
+  expect(findResourceOccurrences('<!-- <pre> local://example.png', { markdownInline: false })).toEqual([]);
+});
