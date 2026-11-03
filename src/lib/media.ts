@@ -57,14 +57,19 @@ export async function readPortableImage(filePath: string): Promise<string> {
 }
 
 /** Validate original upload bytes; callers retain control over upload ordering. */
-export async function validateUploadableImage(filePath: string): Promise<void> {
-  if (!['.jpg', '.jpeg', '.png', '.gif'].includes(path.extname(filePath).toLowerCase())) {
+export async function validateUploadableImage(filePath: string, kind: 'content' | 'permanent' = 'permanent'): Promise<void> {
+  const formats = kind === 'content' ? ['jpeg', 'png'] : ['jpeg', 'png', 'gif'];
+  const extensions = kind === 'content' ? ['.jpg', '.jpeg', '.png'] : ['.jpg', '.jpeg', '.png', '.gif'];
+  if (!extensions.includes(path.extname(filePath).toLowerCase())) {
     throw new Error(`Unsupported image format: ${path.extname(filePath)}`);
   }
   const bytes = fs.readFileSync(filePath);
-  if (bytes.length > 2 * 1024 * 1024) throw new Error(`Image exceeds 2 MiB upload limit: ${filePath}`);
+  const maxBytes = (kind === 'content' ? 1 : 2) * 1024 * 1024;
+  if (kind === 'content' ? bytes.length >= maxBytes : bytes.length > maxBytes) {
+    throw new Error(`Image exceeds ${maxBytes / 1024 / 1024} MiB ${kind} upload limit: ${filePath}`);
+  }
   const image = sharp(bytes, { animated: true, failOn: 'warning' });
   const metadata = await image.metadata();
-  if (!['jpeg', 'png', 'gif'].includes(metadata.format || '')) throw new Error(`Unsupported upload image format: ${metadata.format || 'unknown'} (${filePath})`);
+  if (!formats.includes(metadata.format || '')) throw new Error(`Unsupported ${kind} upload image format: ${metadata.format || 'unknown'} (${filePath})`);
   await image.raw().toBuffer();
 }

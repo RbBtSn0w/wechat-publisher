@@ -79,8 +79,49 @@ test('encoded local image paths are replaced in the final rendered HTML', async 
   expect(result.post.contentHtml).not.toContain(directory);
 });
 
+test('ordinary relative images survive an assets directory with spaces and parentheses', async () => {
+  const assets = path.join(directory, 'My Blog (drafts)');
+  fs.mkdirSync(assets);
+  fs.copyFileSync(path.join(directory, 'body.png'), path.join(assets, 'body.png'));
+  fs.copyFileSync(path.join(directory, 'cover.png'), path.join(assets, 'cover.png'));
+  const { post, config, uploader } = fixture('![body](body.png)');
+  fs.writeFileSync(post, fs.readFileSync(post, 'utf8').replace(path.join(directory, 'cover.png'), path.join(assets, 'cover.png')));
+  const result = await processPostWithReport(post, { ...config, assetsDir: assets }, uploader as unknown as Uploader);
+  expect(result.post.contentHtml).toContain('src="https://mmbiz.qpic.cn/body.png"');
+  expect(result.post.contentMarkdown).toContain('https://mmbiz.qpic.cn/body.png');
+  expect(uploader.uploadImage).toHaveBeenCalledTimes(1);
+});
+
 test('preparation rejects an upload-incompatible extension even with valid image bytes', async () => {
   fs.copyFileSync(path.join(directory, 'body.png'), path.join(directory, 'disguised.webp'));
   const { post, config } = fixture(`![good](${path.join(directory, 'body.png')})\n![bad](${path.join(directory, 'disguised.webp')})`);
   await expect(preparePostWithReport(post, config)).rejects.toThrow(/format/i);
+});
+
+test('local path length does not reject a payload that fits after upload', async () => {
+  const { post, config, uploader } = fixture('![body](body.png)');
+  const initial = await preparePostWithReport(post, config);
+  const final = await executePreparedPost(initial, uploader as unknown as Uploader);
+  const limited = { ...config, limits: {
+    contentCharacters: final.post.contentHtml.length,
+    contentBytes: Buffer.byteLength(final.post.contentHtml, 'utf8'),
+  } };
+  const prepared = await preparePostWithReport(post, limited);
+  expect(prepared.result.post.contentHtml.length).toBeGreaterThan(limited.limits.contentCharacters);
+  const result = await executePreparedPost(prepared, uploader as unknown as Uploader);
+  expect(result.post.contentHtml).toBe(final.post.contentHtml);
+});
+
+test('content endpoint rejects oversized images and GIF before any cover or body upload', async () => {
+  const body = path.join(directory, 'body.png');
+  const bytes = fs.readFileSync(body);
+  fs.appendFileSync(body, Buffer.alloc(1024 * 1024 - bytes.length));
+  const gif = path.join(directory, 'body.gif');
+  await sharp({ create: { width: 2, height: 2, channels: 3, background: 'white' } }).gif().toFile(gif);
+  for (const file of ['body.png', 'body.gif']) {
+    const { post, config, uploader } = fixture(`![body](${file})`);
+    await expect(processPostWithReport(post, config, uploader as unknown as Uploader)).rejects.toThrow();
+    expect(uploader.uploadImage).not.toHaveBeenCalled();
+    expect(uploader.uploadPermanentImage).not.toHaveBeenCalled();
+  }
 });

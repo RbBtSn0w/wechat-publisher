@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { analyzeCommits } from '@semantic-release/commit-analyzer';
-import { issueReferences } from './release-helpers.mjs';
+import { repositoryIssueReferences } from './release-helpers.mjs';
 
 const run = (command, args) => execFileSync(command, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }).trim();
 const gh = (...args) => run('gh', args);
@@ -30,8 +30,7 @@ if (!ahead) {
         if (seen.has(pull.number)) continue;
         seen.add(pull.number);
         const details = JSON.parse(gh('pr', 'view', String(pull.number), '--repo', repository, '--json', 'body,closingIssuesReferences'));
-        const linked = details.closingIssuesReferences.filter(issue => !issue.repository || issue.repository.nameWithOwner === repository);
-        for (const issue of issueReferences(details.body, linked)) issues.add(issue);
+        for (const issue of repositoryIssueReferences(details.body, details.closingIssuesReferences, repository)) issues.add(issue);
       }
     }
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-release-proposal-'));

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { previewBase, releaseOutput, issueReferences } from '../scripts/release-helpers.mjs';
+import { previewBase, releaseOutput, issueReferences, repositoryIssueReferences } from '../scripts/release-helpers.mjs';
 
 test('preview derives the maximum trusted manifest or stable/beta tag base and ignores preview tags', () => {
   expect(previewBase('1.4.0-beta.1', ['v2.0.0-beta.3', 'v1.7.0', 'v99.0.0-dev.pr4.abcd', 'garbage'])).toBe('2.0.0');
@@ -15,6 +15,15 @@ test('structured release results distinguish no-op and exact stable/beta release
 
 test('promotion preserves linked and textual issue references without duplicates', () => {
   expect(issueReferences('Fixes #3, #4\nCloses #3\nresolves: #8', [{ number: 6 }, { number: 3 }])).toEqual([3, 4, 6, 8]);
+});
+
+test('promotion retains sidebar issue links only from the current repository', () => {
+  const linked = [
+    { number: 6, repository: { id: 'repo', name: 'Wechat-Publisher', owner: { id: 'owner', login: 'RbBtSn0w' } } },
+    { number: 7, repository: { name: 'other', owner: { login: 'RbBtSn0w' } } },
+    { number: 8 },
+  ];
+  expect(repositoryIssueReferences('Fixes #3', linked, 'rbbtsn0w/wechat-publisher')).toEqual([3, 6, 8]);
 });
 
 test('mirror publish failures remain failures and restore the prepared manifest', async () => {

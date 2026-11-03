@@ -84,7 +84,7 @@ async function resolvePermanentMediaId(
   options: ResolveOptions,
   stats: ResolveStats
 ): Promise<string> {
-  await validateUploadableImage(localPath);
+  await validateUploadableImage(localPath, 'permanent');
   if (options.dryRun) {
     return `DRYRUN_MEDIA_ID_${path.basename(localPath)}`;
   }
@@ -106,7 +106,7 @@ async function resolveContentImageUrl(
   options: ResolveOptions,
   stats: ResolveStats
 ): Promise<string> {
-  await validateUploadableImage(localPath);
+  await validateUploadableImage(localPath, 'content');
   if (options.dryRun) {
     return `DRYRUN_URL_${path.basename(localPath)}`;
   }
@@ -128,7 +128,7 @@ async function replaceLocalPlaceholdersInContent(
   options: ResolveOptions,
   stats: ResolveStats
 ): Promise<string> {
-  const matches = findResourceOccurrences(content).filter(item => item.path.startsWith(LOCAL_PREFIX));
+  const matches = findResourceOccurrences(content, { markdownInline: false }).filter(item => item.path.startsWith(LOCAL_PREFIX));
   const uniq = Array.from(new Set(matches.map(item => item.path)));
   if (uniq.length === 0) return content;
 
@@ -299,7 +299,7 @@ export async function resolveDraftPayloadMedia(
     } else {
       await resolveNewspicArticle(article, i, options, stats);
     }
-    const preflight = await runPreflightCheck({ content: String(article.content) });
+    const preflight = await runPreflightCheck({ content: String(article.content), markdownInline: false });
     if (!preflight.passed) throw new Error(preflight.issues.map(issue => issue.message).join(' '));
     assertValidArticle({ title: typeof article.title === 'string' ? article.title : '',
       author: typeof article.author === 'string' ? article.author : '',

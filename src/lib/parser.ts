@@ -1,5 +1,5 @@
 import yaml from 'yaml';
-import { maskProtectedRegions, findFencedCodeRegions, replaceSourceRegions } from './source-regions';
+import { maskProtectedRegions, findFencedCodeRegions, replaceSourceRegions, SourceScanOptions } from './source-regions';
 import fs from 'fs';
 import { BlogPost, ConversionDiagnostic, WeChatArticleType } from '../types';
 
@@ -118,10 +118,10 @@ export function replaceMathExpressions(markdown: string, replacements: Record<st
   return replaceSourceRegions(markdown, findMathOccurrences(markdown).filter(item => replacements[item.key]).map(item => ({ ...item, replacement: replacements[item.key] })));
 }
 
-export interface ResourceOccurrence { path: string; start: number; end: number }
+export interface ResourceOccurrence { path: string; start: number; end: number; bareMarkdown?: boolean }
 
-function imageOccurrences(markdown: string): ResourceOccurrence[] {
-  const visible = maskProtectedRegions(markdown);
+function imageOccurrences(markdown: string, options: SourceScanOptions = {}): ResourceOccurrence[] {
+  const visible = maskProtectedRegions(markdown, options);
   const occurrences: ResourceOccurrence[] = [];
   const pattern = /!\[[^\]]*\]\(\s*(?:<([^>\r\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)|<img\b[^>]*>/gi;
   let match: RegExpExecArray | null;
@@ -141,16 +141,16 @@ function imageOccurrences(markdown: string): ResourceOccurrence[] {
       if (/['"]/.test(match[0][offset])) offset += 1;
     }
     const start = match.index + offset;
-    occurrences.push({ path: resource, start, end: start + resource.length });
+    occurrences.push({ path: resource, start, end: start + resource.length, bareMarkdown: match[2] !== undefined });
   }
   return occurrences;
 }
 
 /** Visible image destinations plus raw local placeholders, suitable for draft resolution. */
-export function findResourceOccurrences(source: string): ResourceOccurrence[] {
-  const images = imageOccurrences(source);
+export function findResourceOccurrences(source: string, options: SourceScanOptions = {}): ResourceOccurrence[] {
+  const images = imageOccurrences(source, options);
   const pattern = /local:\/\/[^\s'")<>]+/g;
-  const visible = maskProtectedRegions(source);
+  const visible = maskProtectedRegions(source, options);
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(visible))) {
     if (!images.some(item => match!.index >= item.start && match!.index < item.end)) {
@@ -160,12 +160,17 @@ export function findResourceOccurrences(source: string): ResourceOccurrence[] {
   return images.sort((a, b) => a.start - b.start);
 }
 
-export function extractImagePaths(markdown: string): string[] {
-  return [...new Set(imageOccurrences(markdown).map(item => item.path))];
+export function extractImagePaths(markdown: string, options: SourceScanOptions = {}): string[] {
+  return [...new Set(imageOccurrences(markdown, options).map(item => item.path))];
 }
 
-export function replaceImagePaths(markdown: string, replacements: Record<string, string>): string {
-  return replaceSourceRegions(markdown, imageOccurrences(markdown).filter(item => Object.prototype.hasOwnProperty.call(replacements, item.path)).map(item => ({ ...item, replacement: replacements[item.path] })));
+export function replaceImagePaths(markdown: string, replacements: Record<string, string>, options: SourceScanOptions = {}): string {
+  return replaceSourceRegions(markdown, imageOccurrences(markdown, options)
+    .filter(item => Object.prototype.hasOwnProperty.call(replacements, item.path))
+    .map(item => {
+      const value = replacements[item.path];
+      return { ...item, replacement: item.bareMarkdown && /[\s()]/.test(value) ? `<${value}>` : value };
+    }));
 }
 
 export function resolveRelativeLinks(html: string, baseUrl: string): string {

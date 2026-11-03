@@ -45,6 +45,19 @@ test('uploadable validation rejects corrupt, unsupported and oversized images', 
   await expect(validateUploadableImage(image)).rejects.toThrow(/2.*MiB/);
 });
 
+test('content and permanent images enforce their distinct endpoint limits', async () => {
+  const dir = temporaryDirectory();
+  const gif = path.join(dir, 'image.gif');
+  await sharp({ create: { width: 2, height: 2, channels: 3, background: 'white' } }).gif().toFile(gif);
+  await expect(validateUploadableImage(gif, 'permanent')).resolves.toBeUndefined();
+  await expect(validateUploadableImage(gif, 'content')).rejects.toThrow(/format/i);
+  const png = path.join(dir, 'large.png');
+  const bytes = await sharp(gif).png().toBuffer();
+  fs.writeFileSync(png, Buffer.concat([bytes, Buffer.alloc(1024 * 1024 - bytes.length)]));
+  await expect(validateUploadableImage(png, 'content')).rejects.toThrow(/1.*MiB/);
+  await expect(validateUploadableImage(png, 'permanent')).resolves.toBeUndefined();
+});
+
 test('BMP exports through native conversion on macOS and fails explicitly elsewhere', async () => {
   const directory = temporaryDirectory();
   const file = path.join(directory, 'pixel.bmp');

@@ -13,6 +13,7 @@ permissions:
 concurrency:
   group: wechat-publisher-lifecycle
   cancel-in-progress: false
+  queue: max
 
 jobs:
   create-release-pr:

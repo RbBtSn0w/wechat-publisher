@@ -60,10 +60,10 @@ function resolveLocalAssetPath(repoRoot: string, assetPath: string, assetsDir: s
   }
 }
 
-function assertContent(result: ProcessResult, config: AppConfig, requireCover: boolean): void {
+function assertContent(result: ProcessResult, config: AppConfig, requireCover: boolean, content = result.post.contentHtml): void {
   const post = result.post;
   const diagnostics = validateArticle({
-    title: post.title, author: post.author, digest: post.digest, content: post.contentHtml,
+    title: post.title, author: post.author, digest: post.digest, content,
     thumbMediaId: requireCover ? post.wechatThumbMediaId : 'preview-cover', articleType: post.articleType,
   }, config.limits).filter(issue => issue.severity === 'error');
   if (diagnostics.length) throw new ArticleValidationError(diagnostics);
@@ -97,7 +97,7 @@ export async function preparePostWithReport(
   let cover: PreparedAsset | undefined;
   if (info.localThumbPath) {
     const localPath = resolveLocalAssetPath(repoRoot, info.localThumbPath, config.assetsDir);
-    await validateUploadableImage(localPath);
+    await validateUploadableImage(localPath, 'permanent');
     cover = { localPath, fingerprint: fingerprintFile(localPath) };
   }
   const generated = new Set<string>();
@@ -139,7 +139,7 @@ export async function preparePostWithReport(
   for (const source of extractImagePaths(markdown)) {
     const localPath = generated.has(source) ? source : /^https?:\/\//i.test(source)
       ? await downloader.download(source) : resolveLocalAssetPath(repoRoot, source, config.assetsDir);
-    await validateUploadableImage(localPath);
+    await validateUploadableImage(localPath, 'content');
     replacements[source] = localPath;
     if (!assets.has(localPath)) assets.set(localPath, { localPath, fingerprint: fingerprintFile(localPath),
       token: `https://wechat-publisher.invalid/resource/${assets.size}` });
@@ -160,11 +160,14 @@ export async function preparePostWithReport(
     asset.localPath.split('/').map(encodeURIComponent).join('/')]));
   const result: ProcessResult = { post: {
     title: info.title || 'Untitled', author: info.author || config.author || '', digest: info.digest || '',
-    contentMarkdown: markdown, contentHtml: replaceImagePaths(htmlTemplate, previewPaths),
+    contentMarkdown: markdown, contentHtml: replaceImagePaths(htmlTemplate, previewPaths, { markdownInline: false }),
     localThumbPath: info.localThumbPath || '', wechatThumbMediaId: info.wechatThumbMediaId || '',
     articleType, originalPath: filePath,
   }, diagnostics, stats };
-  assertContent(result, config, false);
+  // Unknown CDN URL lengths cannot be inferred from machine-specific preview paths.
+  // Reject only a deterministic lower bound here, then check real URLs after upload.
+  const minimumPaths = Object.fromEntries([...assets.values()].map(asset => [asset.token!, '']));
+  assertContent(result, config, false, replaceImagePaths(htmlTemplate, minimumPaths, { markdownInline: false }));
   return { result, images: [...assets.values()], cover, config, htmlTemplate };
 }
 
@@ -189,7 +192,7 @@ export async function executePreparedPost(prepared: PreparedPost, uploader: Uplo
   result.post.contentMarkdown = replaceImagePaths(result.post.contentMarkdown, replacements);
   const htmlReplacements = Object.fromEntries(prepared.images.map(asset => [asset.token!,
     new URL(replacements[asset.localPath]).href.replace(/&/g, '&amp;')]));
-  result.post.contentHtml = replaceImagePaths(prepared.htmlTemplate, htmlReplacements);
+  result.post.contentHtml = replaceImagePaths(prepared.htmlTemplate, htmlReplacements, { markdownInline: false });
   if (prepared.cover) {
     const asset = prepared.cover;
     result.post.wechatThumbMediaId = await cache.getOrUpload(`perm:${asset.localPath}`, asset.fingerprint, async () => {

@@ -23,3 +23,8 @@ export function issueReferences(body, linked = []) {
   }
   return [...refs].sort((a, b) => a - b);
 }
+
+export function repositoryIssueReferences(body, linked, repository) {
+  return issueReferences(body, linked.filter(issue => !issue.repository ||
+    `${issue.repository.owner?.login}/${issue.repository.name}`.toLowerCase() === repository.toLowerCase()));
+}

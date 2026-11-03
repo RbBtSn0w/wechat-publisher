@@ -37,7 +37,7 @@ test('promotion is proposal only with semantic no-op check and body file', () =>
 
 test('release output gates mirror and lifecycle writes serialize across workflows', () => {
   const release = workflow('release');
-  expect(release.concurrency).toEqual({ group: 'wechat-publisher-lifecycle', 'cancel-in-progress': false });
+  expect(release.concurrency).toEqual({ group: 'wechat-publisher-lifecycle', 'cancel-in-progress': false, queue: 'max' });
   const steps = release.jobs.release.steps;
   expect(steps.find((step: any) => step.id === 'semantic').run).toContain('scripts/release.mjs');
   expect(steps.find((step: any) => step.name === 'Mirror to GitHub Packages').if).toBe("steps.semantic.outputs.released == 'true'");

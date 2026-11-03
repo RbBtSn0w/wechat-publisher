@@ -8,6 +8,7 @@ on:
 concurrency:
   group: wechat-publisher-lifecycle
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: write

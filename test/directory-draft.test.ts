@@ -15,6 +15,37 @@ function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-pub-draft-'));
 }
 
+test('HTML backticks cannot hide body resources or unresolved placeholders', async () => {
+  const dir = makeTempDir();
+  try {
+    fs.writeFileSync(path.join(dir, 'body.png'), validPng);
+    const content = '<p>Press the ` key</p><img src="local://body.png"><p>then ` again</p><code>local://example.png</code>';
+    const options = { directory: dir, cache: new ResourceCache({ cacheRoot: path.join(dir, 'cache') }), dryRun: true };
+    const result = await resolveDraftPayloadMedia({ articles: [{ content, thumb_media_id: 'existing' }] }, options);
+    expect(result.payload.articles[0].content).toContain('src="DRYRUN_URL_body.png"');
+    expect(result.payload.articles[0].content).toContain('<code>local://example.png</code>');
+    expect(result.stats.placeholderCount).toBe(1);
+    await expect(resolveDraftPayloadMedia({ articles: [{ content: '<p>` [TODO] `</p>', thumb_media_id: 'existing' }] }, options)).rejects.toThrow(/TODO/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('permanent GIF drafts remain valid but body GIFs fail before any upload', async () => {
+  const dir = makeTempDir();
+  try {
+    const sharp = (await import('sharp')).default;
+    await sharp(validPng).gif().toFile(path.join(dir, 'image.gif'));
+    const uploader = { uploadPermanentImage: vi.fn(async () => 'permanent-id'), uploadImage: vi.fn(async () => 'https://cdn/image') };
+    const options = { directory: dir, cache: new ResourceCache({ cacheRoot: path.join(dir, 'cache') }), uploader };
+    const newspic = { article_type: 'newspic', content: '<p>Picture</p>', image_info: { image_list: [{ image_media_id: 'local://image.gif' }] } };
+    const result = await resolveDraftPayloadMedia({ articles: [newspic] }, options);
+    expect(result.stats.permanentUploadCount).toBe(1);
+    uploader.uploadPermanentImage.mockClear();
+    await expect(resolveDraftPayloadMedia({ articles: [newspic, { content: '<img src="local://image.gif">', thumb_media_id: 'existing' }] }, options)).rejects.toThrow(/format/i);
+    expect(uploader.uploadPermanentImage).not.toHaveBeenCalled();
+    expect(uploader.uploadImage).not.toHaveBeenCalled();
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('readDraftPayloadFromDirectory requires exactly one json', () => {
   const dir = makeTempDir();
   fs.writeFileSync(path.join(dir, 'a.json'), '{"articles":[{"content":"x","thumb_media_id":"m"}]}');

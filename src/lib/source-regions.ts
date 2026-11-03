@@ -10,7 +10,11 @@ export interface FencedCodeRegion extends SourceRegion {
   contentEnd: number;
 }
 
-function scanRegions(source: string): { protected: SourceRegion[]; fences: FencedCodeRegion[] } {
+export interface SourceScanOptions {
+  markdownInline?: boolean;
+}
+
+function scanRegions(source: string, options: SourceScanOptions = {}): { protected: SourceRegion[]; fences: FencedCodeRegion[] } {
   const protectedRegions: SourceRegion[] = [];
   const fences: FencedCodeRegion[] = [];
   let index = 0;
@@ -43,7 +47,7 @@ function scanRegions(source: string): { protected: SourceRegion[]; fences: Fence
         continue;
       }
     }
-    if (source[index] === '`' && (index === 0 || source[index - 1] !== '\\')) {
+    if (options.markdownInline !== false && source[index] === '`' && (index === 0 || source[index - 1] !== '\\')) {
       const start = index;
       while (source[index] === '`') index += 1;
       const length = index - start;
@@ -70,9 +74,9 @@ function scanRegions(source: string): { protected: SourceRegion[]; fences: Fence
 }
 
 /** Hide code examples without moving source offsets or line boundaries. */
-export function maskProtectedRegions(source: string): string {
+export function maskProtectedRegions(source: string, options: SourceScanOptions = {}): string {
   const characters = source.split('');
-  for (const region of scanRegions(source).protected) {
+  for (const region of scanRegions(source, options).protected) {
     for (let index = region.start; index < region.end; index += 1) {
       if (characters[index] !== '\r' && characters[index] !== '\n') characters[index] = ' ';
     }

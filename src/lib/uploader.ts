@@ -1,14 +1,14 @@
 import fs from 'fs';
 import FormData from 'form-data';
 import { WeChatAPIClient } from './api-client';
-import { validateImage } from './validator';
+import { validateUploadableImage } from './media';
 import { requireWriteField, UnknownWriteOutcomeError } from './write-outcome';
 
 export class Uploader {
   constructor(private apiClient: WeChatAPIClient) {}
 
   async uploadImage(localPath: string): Promise<string> {
-    validateImage(localPath);
+    await validateUploadableImage(localPath, 'content');
 
     const token = await this.apiClient.getAccessToken();
     const response = await this.apiClient.postMultipart('/cgi-bin/media/uploadimg', () => {
@@ -30,7 +30,7 @@ export class Uploader {
   }
 
   async uploadPermanentImage(localPath: string): Promise<string> {
-    validateImage(localPath);
+    await validateUploadableImage(localPath, 'permanent');
 
     const token = await this.apiClient.getAccessToken();
     const response = await this.apiClient.postMultipart('/cgi-bin/material/add_material', () => {

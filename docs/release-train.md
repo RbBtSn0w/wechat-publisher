@@ -95,6 +95,15 @@ publication. Independent polling every five minutes recovers lost wakeups;
 Actions concurrency is not a distributed writer lock or durable event queue.
 The lease is 30 minutes; the operational target is reconciliation within 10 minutes
 after publication tasks settle, subject to manual review. Neither is a GitHub SLA.
+The lease starts at `prepare` and covers the entire cycle: promotion review and
+merge, publication, sync PR checks and human merge, and fresh queue validation.
+Before preparing, coordinate both human merge windows and check runner/CI capacity.
+If these steps cannot fit within 30 minutes, postpone preparation. A cycle that
+exceeds that budget is expected to enter HOLD, even if publication succeeded;
+the 10-minute target does not extend the lease. Preserve its checkpoint and use
+the documented incident recovery process. Do not renew the lease automatically
+or prepare a replacement cycle over an unfinished one. The 30-minute budget is
+an explicit repository policy, not an estimate of typical CI or review duration.
 
 For bootstrap, review and provision the trusted controller before the first main
 promotion. Prepare a normal checkpointed cycle even though workflows are not yet

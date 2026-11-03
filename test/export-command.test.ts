@@ -61,7 +61,7 @@ let url = "local://inside-code.png"
     const bodyImgPath = path.join(draftDir, 'diagram.png');
     await sharp({ create: { width: 2, height: 2, channels: 3, background: 'white' } }).png().toFile(bodyImgPath);
 
-    const preRenderedHtml = `<section class="custom-wrapper"><p>Pre-rendered <a href="https://example.com/ref">Reference</a> and <img src="local://diagram.png"></p></section>`;
+    const preRenderedHtml = '<section class="custom-wrapper"><p>Press the ` key</p><p>Pre-rendered <a href="https://example.com/ref">Reference</a> and <img src="local://diagram.png"></p><p>then ` again</p></section>';
     fs.writeFileSync(
       path.join(draftDir, 'draft.json'),
       JSON.stringify({

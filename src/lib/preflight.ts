@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import { maskProtectedRegions } from './source-regions';
+import { maskProtectedRegions, SourceScanOptions } from './source-regions';
 
 export interface PreflightIssue {
   severity: 'error' | 'warning';
@@ -15,9 +15,9 @@ export interface PreflightResult {
   issues: PreflightIssue[];
 }
 
-export function validatePlaceholderText(content: string): PreflightIssue[] {
+export function validatePlaceholderText(content: string, options: SourceScanOptions = {}): PreflightIssue[] {
   const issues: PreflightIssue[] = [];
-  const lines = maskProtectedRegions(content).split(/\r?\n/);
+  const lines = maskProtectedRegions(content, options).split(/\r?\n/);
 
   const errorPatterns: { pattern: RegExp; desc: string }[] = [
     { pattern: /\[TODO(?:[:\s][^\]]*)?\]/i, desc: 'Unresolved [TODO] placeholder' },
@@ -121,11 +121,12 @@ export async function runPreflightCheck(options: {
   content: string;
   coverPath?: string;
   strict?: boolean;
+  markdownInline?: boolean;
 }): Promise<PreflightResult> {
   const issues: PreflightIssue[] = [];
 
   // 1. Text placeholders check
-  issues.push(...validatePlaceholderText(options.content));
+  issues.push(...validatePlaceholderText(options.content, { markdownInline: options.markdownInline }));
 
   // 2. Cover image check
   if (options.coverPath) {

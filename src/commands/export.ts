@@ -89,7 +89,8 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
   }
 
   const replacements: Record<string, string> = {};
-  for (const resource of extractImagePaths(sourceContent)) {
+  const scanOptions = { markdownInline: !isPreRenderedHtml };
+  for (const resource of extractImagePaths(sourceContent, scanOptions)) {
     if (/^(?:https?:|data:|\/\/)/i.test(resource)) continue;
     if (/^[a-z][a-z0-9+.-]*:/i.test(resource) && !resource.startsWith('local://')) {
       throw new Error(`Unsupported local image URI: ${resource}`);
@@ -100,7 +101,7 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
     const file = resolveContainedFile(base, relative);
     replacements[resource] = await readPortableImage(file);
   }
-  sourceContent = replaceImagePaths(sourceContent, replacements);
+  sourceContent = replaceImagePaths(sourceContent, replacements, scanOptions);
 
   // 1. Run Preflight Inspection
   // Validate cover dimensions only in strict mode, consistent with publish-dir
@@ -109,6 +110,7 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
     content: sourceContent,
     coverPath: options.strict ? coverPath : undefined,
     strict: options.strict,
+    markdownInline: scanOptions.markdownInline,
   });
 
   if (preflight.issues.length > 0) {
