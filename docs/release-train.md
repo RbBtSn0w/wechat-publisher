@@ -28,9 +28,19 @@ recovery with preserved checkpoints, not initialization from main.
 - Repository variable `RELEASE_TRAIN_POLICY_PATH` points to that policy. Variable
   `RELEASE_TRAIN_ENABLED` stays `false` until all prerequisites and bootstrap review
   are complete. Neither presence of a runner nor a passing local test activates it.
-- Repository-scoped `RELEASE_TRAIN_TOKEN`: Contents and Pull requests write plus
-  check/status read, without ruleset bypass. Provide it through GitHub Secrets;
-  never place credentials in policy, journal, command arguments or logs.
+- Repository variable `RELEASE_TRAIN_CONTROLLER_PATH` points to the versioned,
+  operator-private controller outside the checkout. The workflow checks its bytes
+  against `scripts/release-train-controller.json` before delegating reconciliation.
+  It also checks policy/state ownership, private permissions, repository identity,
+  and event identity. Missing state is an error; preflight never initializes it.
+- Reuse the existing `rbbtsn0w-bot` GitHub App. Set repository variable
+  `RELEASE_TRAIN_APP_CLIENT_ID` and secret `RELEASE_TRAIN_APP_PRIVATE_KEY`; install the App
+  on this repository with Contents and Pull requests write plus check/status read,
+  without ruleset bypass. Both proposal and lifecycle jobs mint installation
+  tokens restricted to this repository and these permissions using the pinned
+  official `actions/create-github-app-token` action. Tokens expire after one hour
+  and are revoked on job completion. No persistent `RELEASE_TRAIN_TOKEN` is needed.
+  Never place credentials in policy, journal, command arguments or logs.
 - Publication credentials/trusted publishing must be configured separately. Code
   promotion, npm publication, GitHub Packages mirroring and lifecycle completion
   are distinct results. The initial credential inventory found no Actions secrets.
@@ -39,6 +49,31 @@ Keep the journal, checkpoints and policy backups. Do not automatically delete or
 rotate them; retention/garbage collection requires a separate owner decision.
 Only trusted default-branch controller code runs on the persistent runner. PR
 builds never execute on it. Events are wakeups, not authority or command payloads.
+The runner must support Node 24 actions (runner 2.327.1 or newer); this does not
+change the package's Node engine. App installation alone is not authentication:
+the repository must have access to its private-key secret. Store the key through
+the Actions settings UI or a secure operator-managed secret source, never chat.
+
+Use the local, read-only deployment check after provisioning or recovery:
+
+```bash
+python3 scripts/release-train-preflight.py \
+  --config "$POLICY" --controller "$CONTROLLER" \
+  --provenance scripts/release-train-controller.json --check
+```
+
+`STAGED` means only that the local deployment passed inspection. The reported
+credential presence is not proof of token scope or remote write authority. An
+empty initial state directory is not an observed `ACTIVE` cycle. Preserve the
+append-only cycle snapshots in that directory; if it disappears, restore it from
+operator backups rather than creating an empty replacement.
+
+For the bootstrap gap before these workflows reach main, an operator can invoke
+the already reviewed absolute `CONTROLLER` path with the commands below. Use that
+same controller and policy for independent manual reconciliation after the human
+merge. Do not use a PR checkout as the trusted bootstrap executable. The scheduled
+workflow must stay disabled until the proposal-only definition is on main;
+re-enabling the old default-branch workflow restores its old merge path.
 
 ## npm publication identity
 
@@ -75,12 +110,12 @@ Use a unique cycle ID and the live promotion head `H`, main base `B` and PR numb
 Run the controller from the approved revision with the existing policy:
 
 ```bash
-python3 scripts/release_train_lifecycle.py --config "$POLICY" status
-python3 scripts/release_train_lifecycle.py --config "$POLICY" analyze --head "$H" --base "$B"
-python3 scripts/release_train_lifecycle.py --config "$POLICY" --apply prepare \
+python3 "$CONTROLLER" --config "$POLICY" status
+python3 "$CONTROLLER" --config "$POLICY" analyze --head "$H" --base "$B"
+python3 "$CONTROLLER" --config "$POLICY" --apply prepare \
   --cycle "$CYCLE" --pr "$PR" --head "$H" --base "$B" \
   --writers-paused --queue-edits-paused --lease-seconds 1800
-python3 scripts/release_train_lifecycle.py --config "$POLICY" --apply promote \
+python3 "$CONTROLLER" --config "$POLICY" --apply promote \
   --cycle "$CYCLE" --approval human-required
 ```
 
@@ -100,10 +135,10 @@ result tree and human merger. Feature queue evidence must then name each exact
 feature head and the independently read current develop SHA:
 
 ```bash
-python3 scripts/release_train_lifecycle.py --config "$POLICY" --apply validate \
+python3 "$CONTROLLER" --config "$POLICY" --apply validate \
   --cycle "$CYCLE" --pr "$FEATURE_PR" --head "$FEATURE_HEAD" \
   --base "$CURRENT_DEVELOP_SHA" --evidence "$VALIDATION_EVIDENCE"
-python3 scripts/release_train_lifecycle.py --config "$POLICY" --apply reconcile --cycle "$CYCLE"
+python3 "$CONTROLLER" --config "$POLICY" --apply reconcile --cycle "$CYCLE"
 ```
 
 Resume writers only after `ACTIVE`. No automated job fabricates validation receipts

@@ -75,6 +75,7 @@ test('trusted lifecycle controller is opt-in, uses dedicated runner and independ
   expect(sync.on.schedule).toContainEqual({ cron: '*/5 * * * *' });
   expect(sync.on).toHaveProperty('delete');
   expect(sync.on.pull_request_target.types).toContain('closed');
+  expect(sync.on.pull_request_target.branches).toEqual(['main', 'develop']);
   expect(sync.jobs.sync['runs-on']).toEqual(['self-hosted', 'release-train-wechat-publisher']);
   expect(sync.jobs.sync['timeout-minutes']).toBe(10);
   expect(sync.jobs.sync.if).toContain("vars.RELEASE_TRAIN_ENABLED == 'true'");
@@ -82,9 +83,37 @@ test('trusted lifecycle controller is opt-in, uses dedicated runner and independ
   expect(checkout.with.ref).toBe('main');
   expect(checkout.with['persist-credentials']).toBe(false);
   expect(sync.jobs.sync.steps.find((step: any) => step.uses?.startsWith('actions/setup-python@')).with['python-version']).toBe('3.13');
-  expect(read('.github/workflows/sync-main-to-develop.yml')).toContain('RELEASE_TRAIN_TOKEN:');
-  expect(read('.github/workflows/sync-main-to-develop.yml')).toContain('export GH_TOKEN="$RELEASE_TRAIN_TOKEN"');
+  expect(read('.github/workflows/sync-main-to-develop.yml')).toContain('GH_TOKEN: ${{ steps.app-token.outputs.token }}');
+  expect(read('.github/workflows/sync-main-to-develop.yml')).toContain('RELEASE_TRAIN_CONTROLLER_PATH:');
+  expect(read('.github/workflows/sync-main-to-develop.yml')).toContain('scripts/release-train-preflight.py');
+  expect(read('.github/workflows/sync-main-to-develop.yml')).not.toContain('python3 scripts/release_train_lifecycle.py');
   for (const name of ['ci', 'pr-target']) {
     for (const job of Object.values(workflow(name).jobs) as any[]) expect(job['runs-on']).toBe('ubuntu-latest');
+  }
+});
+
+test('automated proposals and synchronization use revocable repository-scoped App tokens', () => {
+  for (const name of ['scheduled-release-pr', 'sync-main-to-develop']) {
+    const source = read(`.github/workflows/${name}.yml`);
+    const jobs = Object.values(workflow(name).jobs) as any[];
+    const steps = jobs[0].steps;
+    const tokenIndex = steps.findIndex((step: any) => step.id === 'app-token');
+    expect(tokenIndex).toBeGreaterThan(-1);
+    const token = steps[tokenIndex];
+    expect(token.uses).toBe('actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510');
+    expect(token.with['client-id']).toBe('${{ vars.RELEASE_TRAIN_APP_CLIENT_ID }}');
+    expect(token.with['private-key']).toBe('${{ secrets.RELEASE_TRAIN_APP_PRIVATE_KEY }}');
+    expect(token.with.owner).toBe('${{ github.repository_owner }}');
+    expect(token.with.repositories).toBe('${{ github.event.repository.name }}');
+    expect(token.with['skip-token-revoke']).toBe(false);
+    expect(token.with['permission-contents']).toBe('write');
+    expect(token.with['permission-pull-requests']).toBe('write');
+    expect(token.with['permission-checks']).toBe('read');
+    expect(token.with['permission-statuses']).toBe('read');
+    expect(source).not.toContain('secrets.RELEASE_TRAIN_TOKEN');
+    expect(steps.slice(tokenIndex + 1).some((step: any) => step.env?.GH_TOKEN === '${{ steps.app-token.outputs.token }}')).toBe(true);
+    const checkout = steps.find((step: any) => step.uses?.startsWith('actions/checkout@'));
+    expect(checkout.with.ref).toBe('main');
+    expect(checkout.with['persist-credentials']).toBe(false);
   }
 });

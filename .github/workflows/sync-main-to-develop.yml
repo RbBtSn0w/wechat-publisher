@@ -6,7 +6,7 @@ on:
   delete:
   pull_request_target:
     types: [closed]
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
   schedule:
     # Every five minutes in Beijing time (UTC+8); minute cadence is identical in UTC.
@@ -37,23 +37,41 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Create repository App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.RELEASE_TRAIN_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_TRAIN_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-checks: read
+          permission-statuses: read
+          skip-token-revoke: false
       - name: Reconcile trusted lifecycle policy
         env:
-          RELEASE_TRAIN_TOKEN: ${{ secrets.RELEASE_TRAIN_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TRAIN_POLICY_PATH: ${{ vars.RELEASE_TRAIN_POLICY_PATH }}
+          RELEASE_TRAIN_CONTROLLER_PATH: ${{ vars.RELEASE_TRAIN_CONTROLLER_PATH }}
         run: |
           set -euo pipefail
-          if [ -z "$RELEASE_TRAIN_TOKEN" ]; then
-            echo '::error::RELEASE_TRAIN_TOKEN is required.'
+          if [ -z "$GH_TOKEN" ]; then
+            echo '::error::Repository App token is required.'
             exit 1
           fi
-          export GH_TOKEN="$RELEASE_TRAIN_TOKEN"
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          policy = Path(os.environ['RELEASE_TRAIN_POLICY_PATH'])
-          workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
-          if not policy.is_absolute() or not policy.is_file() or policy.resolve().is_relative_to(workspace):
-              raise SystemExit('Policy must be an existing absolute path outside the checkout.')
-          PY
-          python3 scripts/release_train_lifecycle.py --config "$RELEASE_TRAIN_POLICY_PATH" --apply reconcile --event-file "$GITHUB_EVENT_PATH"
+          if python3 scripts/release-train-preflight.py \
+            --config "$RELEASE_TRAIN_POLICY_PATH" \
+            --controller "$RELEASE_TRAIN_CONTROLLER_PATH" \
+            --provenance scripts/release-train-controller.json \
+            --event-file "$GITHUB_EVENT_PATH" --reconcile; then
+            echo 'Lifecycle reconciliation succeeded; inspect controller output for its phase.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            result=$?
+            echo 'Lifecycle reconciliation failed or entered HOLD. Preserve journal/checkpoints and inspect logs.' >> "$GITHUB_STEP_SUMMARY"
+            exit "$result"
+          fi
+      - name: Report lifecycle failure
+        if: failure()
+        run: echo 'Lifecycle did not complete. Check App credentials, controller output and preserved journal before retrying.' >> "$GITHUB_STEP_SUMMARY"
