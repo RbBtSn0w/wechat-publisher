@@ -41,7 +41,7 @@ production behavior are separate acceptance levels.
   Bytes were read from the actual shared merge and matched the vendored source.
 - Repository variables: `RELEASE_TRAIN_ENABLED=false`, `RELEASE_TRAIN_POLICY_PATH`
   names the external policy, and `RELEASE_TRAIN_CONTROLLER_PATH` names that exact
-  deployed version. `RELEASE_TRAIN_APP_CLIENT_ID=Iv23liHFPiEM2pWvzWHH` is configured.
+  deployed version. `RELEASE_BOT_APP_ID=2758804` is configured.
   No Actions secrets were present in the inspection inventory.
 - Existing App `rbbtsn0w-bot` (App ID `2758804`) is installed on this repository
   as installation `106926236`, verified from this repository's installed-App page.
@@ -56,8 +56,8 @@ production behavior are separate acceptance levels.
 ## Remaining operator handoff, in dependency order
 
 1. Reuse the existing `rbbtsn0w-bot` App: verify its installation on this
-   repository, set variable `RELEASE_TRAIN_APP_CLIENT_ID`, and provision secret
-   `RELEASE_TRAIN_APP_PRIVATE_KEY` through repository Actions settings, never chat,
+   repository, set variable `RELEASE_BOT_APP_ID`, and provision secret
+   `RELEASE_BOT_PRIVATE_KEY` through repository Actions settings, never chat,
    a tracked file or a command argument. Workflows create short-lived tokens scoped
    explicitly to this repository, with automatic revocation when the job ends.
    Needed access is Contents and Pull requests read/write, Checks and Commit
@@ -130,11 +130,11 @@ Node `22.22.2`; all commands below exited zero on 2026-11-03:
 
 | Command | Result | Measured duration |
 | --- | --- | --- |
-| `npm run lint` | 0 errors, 10 existing warnings | 997 ms |
-| `npm test` | 231 tests across 27 files passed | 2554 ms |
-| `npm run build` | Passed | 860 ms |
-| `npm run test:package` | Actual 49-file tarball installed; root import and CLI smoke passed | 11971 ms |
-| `git diff --check` | Passed | Not timed |
+| `npm run lint` | 0 errors, 10 existing warnings | 946 ms |
+| `npm test` | 268 tests across 28 files passed | 8550 ms |
+| `npm run build` | Passed | 779 ms |
+| `npm run test:package` | Actual local 49-file tarball installed; root import and CLI smoke passed | 12739 ms |
+| `git diff --check` | Passed | 22 ms |
 
 The unchanged shared controller retains its earlier 54 lifecycle/37 skill-contract
 test evidence and merged PR #95's successful Unit tests check. Focused independent
@@ -148,3 +148,16 @@ the restored `release.yml` publishing identity, not publication of this follow-u
 record its new head's remote result separately after pushing. The external
 deployment still reports `STAGED`, zero cycles, and no local credential. No
 operator approval, promotion merge or `ACTIVE` transition is inferred from tests.
+
+The subsequent `fa0ae336dcd74eaea1e64656d6688c94db0764eb` preview also passed CI,
+published to both registries and installed as exact version
+`1.4.0-dev.pr21.fa0ae33`. An isolated build of that exact source produced the clean
+48-file tarball and passed installation smoke (850 ms build, 12620 ms smoke).
+The local 49-file count includes an old generated theme index, retained in the
+original workspace; it is absent from clean builds and the published preview.
+Its CodeRabbit review added six findings; the follow-up addresses indexed BMP
+palette values, escaped/entity placeholders, comment-like attribute text,
+per-registry artifact identity, uninterrupted previews and partial-publish receipts.
+Credential names now follow the existing `RELEASE_BOT_APP_ID` /
+`RELEASE_BOT_PRIVATE_KEY` convention used in app-store-creative. No App key or
+automation identity is newly generated, and the lifecycle remains disabled.

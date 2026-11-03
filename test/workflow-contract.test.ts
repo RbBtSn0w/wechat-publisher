@@ -59,14 +59,16 @@ test('preview publishes from the existing trusted release workflow with its own 
   expect(preview.permissions.contents).toBe('read');
   expect(preview.permissions['id-token']).toBe('write');
   expect(preview.concurrency.group).not.toBe(release.jobs.release.concurrency.group);
-  expect(preview.concurrency['cancel-in-progress']).toBe(true);
+  expect(preview.concurrency['cancel-in-progress']).toBe(false);
   const steps = preview.steps;
   const publishIndex = steps.findIndex((step: any) => step.id === 'npm_publish');
   const beforePublish = steps.slice(0, publishIndex).map((step: any) => step.run || '').join('\n');
   for (const check of ['npm run lint', 'npm test', 'npm run build', 'npm run test:package']) expect(beforePublish).toContain(check);
   const checkout = steps.find((step: any) => step.uses?.startsWith('actions/checkout@'));
   expect(checkout.with.ref).toBe('${{ github.event.pull_request.head.sha }}');
-  expect(steps[publishIndex].run).toContain('npm publish --provenance --tag next --access public');
+  expect(steps[publishIndex].run).toContain('node scripts/publish-preview.mjs');
+  const comment = steps.find((step: any) => step.name === 'Post or Update PR Comment');
+  expect(comment.if).toContain('always() && !cancelled()');
   expect(release.jobs.release.if).toContain("github.event_name != 'pull_request'");
 });
 
@@ -101,8 +103,8 @@ test('automated proposals and synchronization use revocable repository-scoped Ap
     expect(tokenIndex).toBeGreaterThan(-1);
     const token = steps[tokenIndex];
     expect(token.uses).toBe('actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510');
-    expect(token.with['client-id']).toBe('${{ vars.RELEASE_TRAIN_APP_CLIENT_ID }}');
-    expect(token.with['private-key']).toBe('${{ secrets.RELEASE_TRAIN_APP_PRIVATE_KEY }}');
+    expect(token.with['app-id']).toBe('${{ vars.RELEASE_BOT_APP_ID }}');
+    expect(token.with['private-key']).toBe('${{ secrets.RELEASE_BOT_PRIVATE_KEY }}');
     expect(token.with.owner).toBe('${{ github.repository_owner }}');
     expect(token.with.repositories).toBe('${{ github.event.repository.name }}');
     expect(token.with['skip-token-revoke']).toBe(false);

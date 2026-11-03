@@ -125,6 +125,40 @@ test.each([false, true])('decodes every odd-width 4-bit BMP row (topDown=%s)', a
   expect([...await png.ensureAlpha().raw().toBuffer()]).toEqual(topDown ? [...red, ...blue] : [...blue, ...red]);
 });
 
+test.each([1, 4, 8])('rejects BMP %i-bit real pixels outside the declared palette', async bits => {
+  const bitmap = bitmapFixture(bits);
+  bitmap.writeUInt32LE(1, 46);
+  const file = path.join(temporaryDirectory(), 'invalid-index.bmp');
+  fs.writeFileSync(file, bitmap);
+
+  await expect(readPortableImage(file)).rejects.toThrow(/BMP.*palette index/);
+});
+
+test.each([1, 4, 8])('ignores unused BMP %i-bit packed bits and row padding when validating indices', async bits => {
+  const bitmap = bitmapFixture(bits);
+  bitmap.writeInt32LE(1, 18);
+  bitmap.writeUInt32LE(1, 46);
+  bitmap.fill(0xff, 62);
+  bitmap[62] = bits === 1 ? 0x7f : bits === 4 ? 0x0f : 0;
+  const file = path.join(temporaryDirectory(), 'unused-indices.bmp');
+  fs.writeFileSync(file, bitmap);
+
+  const uri = await readPortableImage(file);
+
+  expect([...await sharp(Buffer.from(uri.split(',')[1], 'base64')).ensureAlpha().raw().toBuffer()])
+    .toEqual([255, 0, 0, 255]);
+});
+
+test('rejects an odd-width real palette index before extending the decoder palette', async () => {
+  const bitmap = bitmapFixture(4);
+  bitmap.writeInt32LE(1, 18);
+  bitmap[62] = 0x20;
+  const file = path.join(temporaryDirectory(), 'invalid-odd-index.bmp');
+  fs.writeFileSync(file, bitmap);
+
+  await expect(readPortableImage(file)).rejects.toThrow(/BMP.*palette index/);
+});
+
 test('rejects odd-width BMP when padded decoder dimensions exceed 16 MP before allocation', async () => {
   const bitmap = bitmapFixture(4);
   bitmap.writeInt32LE(1, 18);

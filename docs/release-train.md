@@ -34,7 +34,7 @@ recovery with preserved checkpoints, not initialization from main.
   It also checks policy/state ownership, private permissions, repository identity,
   and event identity. Missing state is an error; preflight never initializes it.
 - Reuse the existing `rbbtsn0w-bot` GitHub App. Set repository variable
-  `RELEASE_TRAIN_APP_CLIENT_ID` and secret `RELEASE_TRAIN_APP_PRIVATE_KEY`; install the App
+  `RELEASE_BOT_APP_ID` and secret `RELEASE_BOT_PRIVATE_KEY`; install the App
   on this repository with Contents and Pull requests write plus check/status read,
   without ruleset bypass. Both proposal and lifecycle jobs mint installation
   tokens restricted to this repository and these permissions using the pinned
@@ -97,6 +97,17 @@ group is separate from the stable/beta lifecycle group. Check the real package
 version and registry before rerunning a failed publish; do not infer successful
 authentication from a dry run. Verbose npm output records OIDC exchange failures
 without printing credential values.
+
+New commits do not automatically cancel an in-progress preview publication, so
+its npm and GitHub Packages steps can finish together. A rerun checks each registry
+independently: an existing name/version must match the exact source commit and the
+SHA-512 digest of the locally prepared npm tarball before it counts as success.
+Only an explicit registry E404 means missing; unavailable or mismatched metadata
+fails. A publish failure triggers one readback, never another publish attempt.
+Verified existing versions retain current dist-tags to avoid moving a newer `next`
+backward. If mirroring fails after npm succeeds, the Actions job remains failed
+and the PR receipt still lists the available npm version. Inspect that partial
+result before rerunning the same head; manual cancellation can still interrupt it.
 
 ## Human promotion and synchronization
 

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import semver from 'semver';
+import { publishArtifact } from './publish-registry.mjs';
 
 const [version, channel, gitHead] = process.argv.slice(2);
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -17,7 +18,7 @@ try {
   // npm's publishConfig overrides registry defaults: explicitly prepare the mirror target.
   pkg.publishConfig = { ...pkg.publishConfig, registry: 'https://npm.pkg.github.com' };
   fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-  execFileSync('npm', ['publish', '--registry', 'https://npm.pkg.github.com', '--tag', channel, '--access', 'public', '--userconfig', npmrc], { stdio: 'inherit' });
+  publishArtifact(pkg, version, channel, gitHead, 'https://npm.pkg.github.com', { userconfig: npmrc });
 } finally {
   fs.writeFileSync('package.json', original);
   fs.rmSync(temporary, { recursive: true, force: true });

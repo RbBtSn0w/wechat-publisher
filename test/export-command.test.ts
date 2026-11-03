@@ -35,6 +35,17 @@ describe('exportCommand', () => {
     expect(copyRichTextToClipboard).not.toHaveBeenCalled();
   });
 
+  it.each(['\\[TODO\\]', '&#91;TODO&#93;', '&#x5b;TODO&#x5d;'])('rejects visible rendered placeholder %s', async placeholder => {
+    const source = path.join(tmpDir, 'post.md');
+    fs.writeFileSync(source, placeholder);
+    const output = path.join(tmpDir, 'rejected.html');
+
+    await expect(exportCommand(source, { output, clip: true, strict: true })).rejects.toThrow(/Preflight checks failed/);
+
+    expect(fs.existsSync(output)).toBe(false);
+    expect(copyRichTextToClipboard).not.toHaveBeenCalled();
+  });
+
   it('allows resolved local reference images and placeholder links inside code examples', async () => {
     const image = path.join(tmpDir, 'image.png');
     await sharp({ create: { width: 2, height: 2, channels: 3, background: 'white' } }).png().toFile(image);

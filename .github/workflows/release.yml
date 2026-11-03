@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: wechat-publisher-preview-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       contents: read
       issues: write
@@ -110,14 +110,10 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_LOGLEVEL: verbose
+          RELEASE_GIT_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          if [ -n "$NODE_AUTH_TOKEN" ]; then
-            npm publish --tag next --access public
-          else
-            echo "Publishing via the existing release.yml npm trusted publisher."
-            npm publish --provenance --tag next --access public
-          fi
+          node scripts/publish-preview.mjs "$RELEASE_GIT_HEAD"
           echo "npm_published=true" >> "$GITHUB_OUTPUT"
       - name: Mirror to GitHub Packages
         id: gh_packages
@@ -129,7 +125,7 @@ jobs:
           node scripts/publish-mirror.mjs "$RELEASE_VERSION" next "$RELEASE_GIT_HEAD"
           echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
       - name: Post or Update PR Comment
-        if: steps.npm_publish.outputs.npm_published == 'true' || steps.gh_packages.outputs.gh_packages_published == 'true'
+        if: always() && !cancelled() && (steps.npm_publish.outputs.npm_published == 'true' || steps.gh_packages.outputs.gh_packages_published == 'true')
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

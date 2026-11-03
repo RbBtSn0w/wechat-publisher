@@ -43,14 +43,31 @@ function scanRegions(source: string, options: SourceScanOptions = {}): { protect
         index = end;
         continue;
       }
-      const opening = source.slice(index).match(/^<(pre|code)\b[^>]*>/i);
-      if (opening) {
-        const closing = new RegExp(`</${opening[1]}\\s*>`, 'ig');
-        closing.lastIndex = index + opening[0].length;
-        const match = closing.exec(source);
-        const end = match ? match.index + match[0].length : source.length;
-        protectedRegions.push({ start: index, end });
-        index = end;
+      const tag = source.slice(index).match(/^<(\/?)([a-z][a-z0-9:-]*)\b/i);
+      if (tag) {
+        let tagEnd = index + tag[0].length;
+        let quote: string | undefined;
+        while (tagEnd < source.length) {
+          const character = source[tagEnd++];
+          if (quote) {
+            if (character === quote) quote = undefined;
+          } else if (character === '"' || character === "'") {
+            quote = character;
+          } else if (character === '>') {
+            break;
+          }
+        }
+        if (!tag[1] && /^(pre|code)$/i.test(tag[2])) {
+          const closing = new RegExp(`</${tag[2]}\\s*>`, 'ig');
+          closing.lastIndex = tagEnd;
+          const match = closing.exec(source);
+          const end = match ? match.index + match[0].length : source.length;
+          protectedRegions.push({ start: index, end });
+          index = end;
+        } else {
+          // Attributes are tag syntax: comment/code openers within quotes are literal values.
+          index = tagEnd;
+        }
         continue;
       }
     }

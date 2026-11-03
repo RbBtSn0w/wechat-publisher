@@ -46,8 +46,20 @@ async function convertBmpToPng(bytes: Buffer): Promise<Buffer> {
   const headerEnd = 14 + dibSize;
   const pixelOffset = bytes.readUInt32LE(10);
   if (pixelOffset < headerEnd + paletteBytes || pixelOffset > bytes.length) invalid('palette or pixel offset is out of bounds');
-  const pixelBytes = Math.ceil(width * bits / 32) * 4 * height;
+  const stride = Math.ceil(width * bits / 32) * 4;
+  const pixelBytes = stride * height;
   if (pixelBytes > bytes.length - pixelOffset) invalid('truncated pixel scanlines');
+
+  if (bits <= 8) {
+    for (let row = 0; row < height; row += 1) {
+      for (let column = 0; column < width; column += 1) {
+        const bitOffset = column * bits;
+        const packed = bytes[pixelOffset + row * stride + Math.floor(bitOffset / 8)];
+        const paletteIndex = (packed >> (8 - bits - bitOffset % 8)) & (2 ** bits - 1);
+        if (paletteIndex >= paletteCount) invalid('pixel palette index exceeds the declared palette');
+      }
+    }
+  }
 
   // bmp-ts reads pixels immediately after the palette and applies extended-header masks.
   // Normalize the admitted BI_RGB container; the dependency still owns all pixel decoding.

@@ -25,3 +25,9 @@ test('HTML comments cannot open protected code regions over following prose', ()
   expect(maskProtectedRegions(source)).toContain('<img src="local://real.png">');
   expect(findResourceOccurrences('<!-- <pre> local://example.png', { markdownInline: false })).toEqual([]);
 });
+
+test.each(['"<!--"', "'<!-- > ` <code>'"])('quoted tag attributes %s cannot hide following images or placeholders', attribute => {
+  const source = `<p data-example=${attribute}>Example</p><img src="local://body.png">[TODO]`;
+  expect(maskProtectedRegions(source, { markdownInline: false })).toContain('<img src="local://body.png">[TODO]');
+  expect(findResourceOccurrences(source, { markdownInline: false }).map(item => item.path)).toEqual(['local://body.png']);
+});

@@ -132,3 +132,18 @@ test('content endpoint rejects oversized images and GIF before any cover or body
     expect(uploader.uploadPermanentImage).not.toHaveBeenCalled();
   }
 });
+
+test('comment-like quoted attributes cannot hide a body image from upload preparation', async () => {
+  const { post, config, uploader } = fixture('<p data-example="<!--">Example</p><img src="local://body.png">');
+  const result = await processPostWithReport(post, config, uploader as unknown as Uploader);
+  expect(uploader.uploadImage).toHaveBeenCalledTimes(1);
+  expect(result.post.contentHtml).toContain('src="https://mmbiz.qpic.cn/body.png"');
+  expect(result.post.contentHtml).not.toContain('local://');
+});
+
+test('comment-like quoted attributes cannot hide TODO prose before upload', async () => {
+  const { post, config, uploader } = fixture('<p data-example="<!--">Example</p>[TODO]');
+  await expect(processPostWithReport(post, config, uploader as unknown as Uploader)).rejects.toThrow();
+  expect(uploader.uploadImage).not.toHaveBeenCalled();
+  expect(uploader.uploadPermanentImage).not.toHaveBeenCalled();
+});
