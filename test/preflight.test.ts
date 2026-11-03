@@ -6,6 +6,11 @@ import os from 'os';
 import sharp from 'sharp';
 
 describe('validatePlaceholderText', () => {
+  it('does not match inline code across separate Markdown blocks', () => {
+    for (const content of ['` unmatched opener\n\n[TODO: finish]\n\nclosing `', '` unmatched\n# [TODO: heading]\nclosing `']) {
+      expect(validatePlaceholderText(content)).toHaveLength(1);
+    }
+  });
   it('detects unresolved TODO and placeholder patterns with line numbers', () => {
     const content = `Line 1: Hello
 Line 2: [TODO: Add diagram]
@@ -98,6 +103,26 @@ describe('validateCoverImage', () => {
 });
 
 describe('runPreflightCheck', () => {
+  it('checks source link placeholders once while allowing resolved local images', async () => {
+    const result = await runPreflightCheck({
+      sourceMarkdown: '[TODO: missing](https://example.com)\n\n![Figure](local://image.png)',
+      content: '<a href="https://example.com">TODO: missing</a><img src="data:image/png;base64,AA==">',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toEqual([expect.objectContaining({ severity: 'error', line: 1 })]);
+  });
+
+  it('still rejects unresolved local placeholders in final HTML when source Markdown is supplied', async () => {
+    const result = await runPreflightCheck({
+      sourceMarkdown: 'Clean source',
+      content: '<p>local://missing.png</p>',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toEqual([expect.objectContaining({ severity: 'error', line: 1 })]);
+  });
+
   it('combines text and image validation and evaluates passed status', async () => {
     const result = await runPreflightCheck({
       content: 'Clean text',
@@ -114,4 +139,32 @@ describe('runPreflightCheck', () => {
     expect(result.passed).toBe(false);
     expect(result.issues.some(i => i.severity === 'error')).toBe(true);
   });
+});
+
+it('preserves prose on HTML closing lines and requires whitespace-only fence closure', () => {
+  const source = ['````md', '````not-close', '[TODO: example]', '````', '<code>', '[TODO: example]', '</code> [TODO: real]', '``[TODO: example] ` x``'].join('\n');
+  expect(validatePlaceholderText(source)).toEqual([expect.objectContaining({ line: 7, severity: 'error' })]);
+});
+
+it('detects rendered placeholders once and decodes entities only after masking code', async () => {
+  const result = await runPreflightCheck({
+    sourceMarkdown: '[TODO] prose and `&#91;TODO&#93;`',
+    content: '<p>[TODO] prose and <code>&#91;TODO&#93;</code></p>',
+  });
+  expect(result.issues).toHaveLength(1);
+  const encoded = await runPreflightCheck({ sourceMarkdown: '&#91;TODO&#93;', content: '<p>&#91;TODO&#93;</p>' });
+  expect(encoded.passed).toBe(false);
+  expect(encoded.issues).toHaveLength(1);
+});
+
+it('does not hide final local placeholders after a comment-like quoted attribute', async () => {
+  const result = await runPreflightCheck({ content: '<p data-example="<!--">Example</p><img src="local://body.png">' });
+  expect(result.passed).toBe(false);
+  expect(result.issues).toHaveLength(1);
+});
+
+it('does not recursively decode visible entities or treat escaped code tags as protected HTML', async () => {
+  expect((await runPreflightCheck({ sourceMarkdown: 'literal', content: '<p>&amp;#91;TODO&amp;#93;</p>' })).passed).toBe(true);
+  expect((await runPreflightCheck({ sourceMarkdown: 'literal', content: '<p>&lt;code&gt;&#91;TODO&#93;&lt;/code&gt;</p>' })).passed).toBe(false);
+  expect((await runPreflightCheck({ sourceMarkdown: 'literal', content: '<code>&#91;TODO&#93;</code>' })).passed).toBe(true);
 });

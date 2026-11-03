@@ -15,7 +15,7 @@
 - **自动化图片同步**：自动提取正文图片并上传至微信 CDN，并在原文中完成路径替换。
 - **封面图管理**：自动上传 Front-matter 指定的封面图作为微信永久素材。
 - **🧜 Mermaid 引擎**：自动识别 Mermaid 代码块并转换为静态图片，确信流程图、时序图在手机端完美显示。
-- **智能缓存系统**：利用 `.wechat-cache.json` 记录已上传资源，避免重复调用 API，节省配额并加速同步。
+- **智能缓存系统**：按公众号与 API 地址隔离上传记录，使用 `.temp/resource-cache-v2` 独立条目缓存，避免不同账号误用素材。
 
 ### 3. 🎨 高保真排版兼容
 - **结构保真渲染**：采用 GitHub 风格（GFM）样式表，确保本地预览与手机端效果高度一致。
@@ -27,6 +27,7 @@
 ### 4. 🛡️ 稳定同步边界
 - **微信门禁预检**：同步前检查标题、作者、摘要、正文字符数/字节数、封面和 HTML 安全标签。
 - **外链图片归一化**：正文中的 HTTP/HTTPS 图片会先下载，再上传到微信正文图床；资源失败时不会创建缺图草稿。
+- **上传限制预检**：正文图床仅接收小于 1 MiB 的 JPEG/PNG；封面和图片消息使用永久素材接口，保留不超过 2 MiB 的 JPEG/PNG/GIF。格式、真实图片内容和大小均在写入前检查；导出格式支持范围独立于上传限制。
 - **公式图片化**：行内 `$...$` 和块级 `$$...$$` 公式转换为 PNG 后上传微信。
 - **Mermaid 可降级**：Kroki 暂时不可用时保留可读占位，并在命令输出中报告降级资源。
 - **不支持语法硬失败**：footnote、未适配 GFM Alert 等可能丢失语义的扩展会在远端调用前报告文件和行号。
@@ -36,25 +37,31 @@
 
 ### 开发者发布流 (CI/CD & Semantic Release)
 ```text
-  [ Developer ]
-       |
-  git push main
-       |
-       v
-+-----------------------------------------------------------+
-| GitHub Actions (release.yml)                              |
-|                                                           |
-|  1. [ Setup ] ----> Install Node.js & Dependencies        |
-|  2. [ Verify ] ---> Run Lint & Vitest                     |
-|  3. [ Build ] ----> tsc (Compile TS to JS)                |
-|  4. [ Release ] --> npx semantic-release                  |
-|          |                                                |
-|          +--------> Analyze Commits (fix/feat/perf)       |
-|          +--------> Generate Changelog                    |
-|          +--------> Create GitHub Tag (e.g. v1.1.0)       |
-|          +--------> Publish to GitHub Packages (@rbbtsn0w)|
-+-----------------------------------------------------------+
+Feature/Fix PR -> develop -> beta package
+                      |
+         Friday promotion proposal
+                      |
+       Human review of exact head/base
+                      |
+                    main -> stable package
+                      |
+          Recorded synchronization PR
+                      |
+       Human merge -> queue validation
+                      |
+                   develop
 ```
+
+发布提案和同步 PR 均等待维护者合并；普通 CI 使用 GitHub-hosted runner，生命周期协调使用专用持久 runner。npm 与 GitHub Packages 的稳定版、预发布版、PR 预览分别使用 `latest`、`beta`、`next`。版本由发布标签和产物记录，发布任务不再直接回写分支版本提交。接入、人工批准、HOLD 和恢复流程见 [Release train runbook](docs/release-train.md)。
+
+### 写入安全与本地预检
+
+- 查询可有限重试；创建、更新草稿及素材上传只尝试一次。网络故障后出现 `WRITE_RESULT_UNKNOWN` 时，应先在微信后台核对结果，再决定是否重试；`latest` 会停止当前批次。
+- 先准备全部资源并检查可确定的错误，再上传。`publish-dir --all` 会先预检所有目录。覆盖确认取消时不上传素材。
+- 最终 CDN URL 长度只能在上传后确认；真实 payload 仍会复检，临界超限可能留下已上传素材。工具会报告情况，不自动删除素材或回滚远端写入。
+- Markdown 与 JSON 导出的本地图片都会验证真实内容并内联为 data URI；读取失败直接终止，技术代码示例保持原文。远端图片 URL 保持原有行为。SVG、未压缩 Windows BMP 会转换为 PNG，BMP 转换不再依赖 macOS；BMP 上限为 64 MiB、1600 万像素，压缩、bitfield 与 OS/2 编码会明确拒绝。
+- 导出支持 Markdown 引用式图片；发布时请使用行内图片语法 `![说明](image.png)`。渲染后未被准备阶段绑定的图片会在任何微信上传前报错，避免遗漏资源。
+- 旧缓存保留，不猜测其账号归属，也不自动导入新命名空间。升级后首次发布可能重新上传；缓存落盘失败会告警，但不会丢弃本次成功结果。多进程使用同一素材仍不承诺仅上传一次。
 
 ### 用户使用流 (CLI & WeChat Sync)
 ```text
@@ -226,7 +233,8 @@ WECHAT_APP_SECRET=您的微信AppSecret
 
 - `wechat.config.yml`: 基础配置。
 - `.env`: 敏感凭证，**请勿提交到版本库**。
-- `.wechat-cache.json`: 图片与 URL 映射缓存。
+- `.temp/resource-cache-v2/`: 按公众号与 API 地址隔离的上传缓存。
+- `.wechat-cache.json`: 旧版缓存，保留但不再读取或导入。
 - `.mermaid-cache/`: 存储生成的 Mermaid 图片。
 
 ---

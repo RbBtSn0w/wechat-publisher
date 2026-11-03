@@ -2,14 +2,11 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [develop]
   workflow_dispatch:
-
-concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -21,66 +18,172 @@ permissions:
 jobs:
   release:
     name: Release
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    concurrency:
+      group: wechat-publisher-lifecycle
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
-          cache: "npm"
-
+          node-version: '24'
+          cache: npm
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
-
       - name: Lint and Test
         run: |
           npm run lint
-          npm run test
-
-      - name: Build
-        run: npm run build
-
+          npm test
+      - name: Build and verify package
+        run: |
+          npm run build
+          npm run test:package
       - name: Semantic Release
         id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npx --yes semantic-release@25
-
-      - name: Dual Publish to GitHub Packages
+        run: node scripts/release.mjs
+      - name: Mirror to GitHub Packages
+        if: steps.semantic.outputs.released == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-        run: |
-          publish_log="$(mktemp)"
-          cleanup() { rm -f .npmrc "$publish_log"; }
-          trap cleanup EXIT
-          OWNER_LOWER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          {
-            echo "@${OWNER_LOWER}:registry=https://npm.pkg.github.com"
-            echo '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}'
-          } > .npmrc
-          npm publish --registry https://npm.pkg.github.com 2> "$publish_log" || {
-            echo "GitHub Packages: Version already exists or nothing to publish."
-            cat "$publish_log" >&2
-          }
+          RELEASE_VERSION: ${{ steps.semantic.outputs.version }}
+          RELEASE_CHANNEL: ${{ steps.semantic.outputs.channel }}
+          RELEASE_GIT_HEAD: ${{ steps.semantic.outputs.git_head }}
+        run: node scripts/publish-mirror.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$RELEASE_GIT_HEAD"
 
-      - name: Sync main to develop
-        if: github.ref == 'refs/heads/main'
+  pr-dev-release:
+    name: PR Dev Preview Release
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'develop' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: wechat-publisher-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Lint and Test
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main develop
-          git checkout -B develop origin/develop
-          if [ "$(git rev-list --count develop..origin/main)" -gt 0 ]; then
-            echo "Syncing main back into develop..."
-            git merge --no-ff origin/main --no-edit -m "chore(repo): sync main to develop [skip ci]"
-            git push origin develop
-          else
-            echo "develop is already up to date with main."
-          fi
+          npm run lint
+          npm test
+      - name: Build and verify package
+        run: |
+          npm run build
+          npm run test:package
+      - name: Calculate Dev Version
+        id: versioning
+        run: |
+          git fetch --quiet origin main develop --tags
+          node scripts/preview-version.mjs
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Publish to npm (next dist-tag)
+        id: npm_publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_LOGLEVEL: verbose
+          RELEASE_GIT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          node scripts/publish-preview.mjs "$RELEASE_GIT_HEAD"
+          echo "npm_published=true" >> "$GITHUB_OUTPUT"
+      - name: Mirror to GitHub Packages
+        id: gh_packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.versioning.outputs.dev_version }}
+          RELEASE_GIT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node scripts/publish-mirror.mjs "$RELEASE_VERSION" next "$RELEASE_GIT_HEAD"
+          echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
+      - name: Post or Update PR Comment
+        if: always() && !cancelled() && (steps.npm_publish.outputs.npm_published == 'true' || steps.gh_packages.outputs.gh_packages_published == 'true')
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const pkgName = pkg.name || 'pkg';
+            const devVersion = '${{ steps.versioning.outputs.dev_version }}';
+            const npmPublished = '${{ steps.npm_publish.outputs.npm_published }}' === 'true';
+            const ghPublished = '${{ steps.gh_packages.outputs.gh_packages_published }}' === 'true';
+
+            const commentHeader = '### 🚀 PR Dev Preview Released';
+            const registries = [];
+            if (npmPublished) {
+              registries.push(`| **npm** | \`${pkgName}@${devVersion}\` | \`next\` |`);
+            }
+            if (ghPublished) {
+              registries.push(`| **GitHub Packages** | \`${pkgName}@${devVersion}\` | \`next\` |`);
+            }
+
+            const body = [
+              commentHeader,
+              '',
+              'A temporary development build has been published for testing and acceptance verification:',
+              '',
+              '| Registry | Package / Version | Dist-tag |',
+              '| :--- | :--- | :--- |',
+              ...registries,
+              '',
+              '#### 🛠️ Quick Verification Options',
+              '```bash',
+              `# Upgrade using wechat-pub update:`,
+              `wechat-pub update --dev`,
+              '',
+              `# Or verify exact version via npx:`,
+              `npx --yes ${pkgName}@${devVersion} --version`,
+              '```',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c => c.user && c.user.type === 'Bot' && c.body && c.body.includes(commentHeader));
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

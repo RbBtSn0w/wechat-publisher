@@ -1,3 +1,4 @@
+import { validPng } from './helpers/image';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -38,7 +39,7 @@ test('processPostWithReport degrades Mermaid failures without leaking fences', a
 
 test('processPostWithReport renders formulas in dry-run without requiring credentials', async () => {
   const formulaImage = path.join(os.tmpdir(), `wechat-formula-${Date.now()}.png`);
-  fs.writeFileSync(formulaImage, 'png');
+  fs.writeFileSync(formulaImage, validPng);
   const filePath = makePost('Formula: $E=mc^2$');
   const result = await processPostWithReport(filePath, config, undefined, {
     formulaRenderer: {
@@ -61,7 +62,7 @@ test('processPostWithReport rejects unsupported footnotes before rendering', asy
 
 test('processPostWithReport routes remote images through download and upload', async () => {
   const downloaded = path.join(os.tmpdir(), `wechat-remote-${Date.now()}.png`);
-  fs.writeFileSync(downloaded, 'image');
+  fs.writeFileSync(downloaded, validPng);
   const filePath = makePost('![remote](https://example.com/image.png)', 'title: Test\narticle_type: newspic');
   const uploads: string[] = [];
   const result = await processPostWithReport(filePath, config, {
@@ -112,7 +113,7 @@ test('processPostWithReport retains legacy styling for unsupported style names',
 
 test('processPostWithReport does not warn about local image paths in dry-run (no uploader)', async () => {
   const downloaded = path.join(os.tmpdir(), `wechat-dryrun-${Date.now()}.png`);
-  fs.writeFileSync(downloaded, 'image');
+  fs.writeFileSync(downloaded, validPng);
   const filePath = makePost('![remote](https://example.com/image.png)', 'title: Test\narticle_type: newspic');
 
   const result = await processPostWithReport(filePath, config, undefined, {

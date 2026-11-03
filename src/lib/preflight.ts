@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
+import { decodeHtmlEntities } from './converter';
+import { maskProtectedRegions, SourceScanOptions } from './source-regions';
 
 export interface PreflightIssue {
   severity: 'error' | 'warning';
@@ -14,61 +16,46 @@ export interface PreflightResult {
   issues: PreflightIssue[];
 }
 
-export function validatePlaceholderText(content: string): PreflightIssue[] {
+const errorPatterns: { pattern: RegExp; desc: string; local?: boolean }[] = [
+  { pattern: /\[TODO(?:[:\s][^\]]*)?\]/i, desc: 'Unresolved [TODO] placeholder' },
+  { pattern: /【待补充[^】]*】/i, desc: 'Unresolved 【待补充】 placeholder' },
+  { pattern: /local:\/\/[^\s'")<>]+/i, desc: 'Unresolved raw local:// image placeholder', local: true },
+];
+
+const warningPatterns: { pattern: RegExp; desc: string }[] = [
+  { pattern: /\bFIXME\b/i, desc: 'FIXME notice present' },
+  { pattern: /\[TBD\]/i, desc: 'TBD placeholder' },
+];
+
+export function validatePlaceholderText(content: string, options: SourceScanOptions = {}): PreflightIssue[] {
+  return scanPlaceholderText(content, options);
+}
+
+function decodePlaceholderEntities(content: string): string {
+  // One pass avoids turning literal &amp;#91; text into a bracket placeholder.
+  const brackets: Record<string, string> = { lsqb: '[', lbrack: '[', rsqb: ']', rbrack: ']' };
+  return content.replace(/&(?:#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|#39|lsqb|lbrack|rsqb|rbrack);/gi, entity => {
+    const token = entity.slice(1, -1).toLowerCase();
+    if (token.startsWith('#')) {
+      const codepoint = token.startsWith('#x') ? parseInt(token.slice(2), 16) : parseInt(token.slice(1), 10);
+      return codepoint <= 0x10ffff ? String.fromCodePoint(codepoint) : entity;
+    }
+    return brackets[token] ?? decodeHtmlEntities(entity);
+  });
+}
+
+function scanPlaceholderText(content: string, options: SourceScanOptions, kind: 'all' | 'text' = 'all', checks: { decodeEntities?: boolean; seen?: Set<RegExp>; exclude?: ReadonlySet<RegExp> } = {}): PreflightIssue[] {
   const issues: PreflightIssue[] = [];
-  const lines = content.split(/\r?\n/);
+  const visible = maskProtectedRegions(content, options);
+  const lines = (checks.decodeEntities ? decodePlaceholderEntities(visible) : visible).split(/\r?\n/);
 
-  const errorPatterns: { pattern: RegExp; desc: string }[] = [
-    { pattern: /\[TODO(?:[:\s][^\]]*)?\]/i, desc: 'Unresolved [TODO] placeholder' },
-    { pattern: /【待补充[^】]*】/i, desc: 'Unresolved 【待补充】 placeholder' },
-    { pattern: /local:\/\/[^\s'")<>]+/i, desc: 'Unresolved raw local:// image placeholder' },
-  ];
-
-  const warningPatterns: { pattern: RegExp; desc: string }[] = [
-    { pattern: /\bFIXME\b/i, desc: 'FIXME notice present' },
-    { pattern: /\[TBD\]/i, desc: 'TBD placeholder' },
-  ];
-
-  let fence: { char: string; len: number } | null = null;
-  let inPreOrCodeBlock = false;
-
-  lines.forEach((lineText, idx) => {
+  lines.forEach((visibleProse, idx) => {
     const lineNum = idx + 1;
 
-    // Track Markdown code fences (``` or ~~~)
-    const fenceMatch = lineText.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!fence) {
-        fence = { char: fenceMatch[1][0], len: fenceMatch[1].length };
-      } else if (fenceMatch[1][0] === fence.char && fenceMatch[1].length >= fence.len) {
-        fence = null;
-      }
-      return;
-    }
-    if (fence) {
-      return;
-    }
-
-    // Track multi-line HTML <pre> blocks
-    if (/<pre\b/i.test(lineText) && !/<\/pre>/i.test(lineText)) {
-      inPreOrCodeBlock = true;
-      return;
-    }
-    if (inPreOrCodeBlock) {
-      if (/<\/pre>/i.test(lineText)) {
-        inPreOrCodeBlock = false;
-      }
-      return;
-    }
-
-    // Strip inline code (`...`) and inline HTML `<code>...</code>` or `<pre>...</pre>` before matching prose
-    const visibleProse = lineText
-      .replace(/<pre\b[\s\S]*?<\/pre>/gi, '')
-      .replace(/<code\b[\s\S]*?<\/code>/gi, '')
-      .replace(/`[^`]+`/g, '');
-
-    for (const { pattern, desc } of errorPatterns) {
-      if (pattern.test(visibleProse)) {
+    for (const { pattern, desc, local } of errorPatterns) {
+      if (kind === 'text' && local) continue;
+      if (pattern.test(visibleProse) && !checks.exclude?.has(pattern)) {
+        checks.seen?.add(pattern);
         issues.push({
           severity: 'error',
           line: lineNum,
@@ -77,7 +64,8 @@ export function validatePlaceholderText(content: string): PreflightIssue[] {
       }
     }
     for (const { pattern, desc } of warningPatterns) {
-      if (pattern.test(visibleProse)) {
+      if (pattern.test(visibleProse) && !checks.exclude?.has(pattern)) {
+        checks.seen?.add(pattern);
         issues.push({
           severity: 'warning',
           line: lineNum,
@@ -153,13 +141,22 @@ export async function validateCoverImage(coverPath: string): Promise<PreflightIs
 
 export async function runPreflightCheck(options: {
   content: string;
+  sourceMarkdown?: string;
   coverPath?: string;
   strict?: boolean;
+  markdownInline?: boolean;
 }): Promise<PreflightResult> {
   const issues: PreflightIssue[] = [];
 
   // 1. Text placeholders check
-  issues.push(...validatePlaceholderText(options.content));
+  if (options.sourceMarkdown !== undefined) {
+    // Rendering can remove placeholder syntax from link labels; media must be checked after resolution.
+    const sourceRules = new Set<RegExp>();
+    issues.push(...scanPlaceholderText(options.sourceMarkdown, {}, 'text', { seen: sourceRules }));
+    issues.push(...scanPlaceholderText(options.content, { markdownInline: false }, 'all', { decodeEntities: true, exclude: sourceRules }));
+  } else {
+    issues.push(...scanPlaceholderText(options.content, { markdownInline: options.markdownInline }, 'all', { decodeEntities: true }));
+  }
 
   // 2. Cover image check
   if (options.coverPath) {

@@ -2,7 +2,7 @@
   "name": "@rbbtsn0w/wechat-publisher",
   "version": "1.4.0-beta.1",
   "description": "WeChat Post Publisher CLI",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "bin": {
     "wechat-pub": "dist/bin/wechat-pub.js"
   },
@@ -23,7 +23,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint 'src/**/*.{ts,js}'",
-    "format": "prettier --write 'src/**/*.{ts,js}'"
+    "format": "prettier --write 'src/**/*.{ts,js}'",
+    "test:package": "node scripts/package-smoke.mjs"
   },
   "keywords": [],
   "author": "RbBtSn0w",
@@ -31,6 +32,7 @@
   "dependencies": {
     "@rbbtsn0w/wechat-markdown": "^1.4.0",
     "axios": "^1.13.6",
+    "bmp-ts": "^1.0.9",
     "commander": "^12.1.0",
     "dotenv": "^16.6.1",
     "form-data": "^4.0.5",
@@ -38,7 +40,6 @@
     "yaml": "^2.8.2"
   },
   "devDependencies": {
-    "@semantic-release/git": "^10.0.1",
     "@types/form-data": "^2.2.1",
     "@types/node": "^20.19.37",
     "@types/yaml": "^1.9.7",
@@ -48,10 +49,23 @@
     "prettier": "^3.8.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "vitest": "^1.6.1"
+    "vitest": "^1.6.1",
+    "semantic-release": "^25.0.0",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "@semantic-release/npm": "^13.1.5",
+    "@semantic-release/github": "^12.0.6",
+    "semver": "^7.7.3"
   },
   "directories": {
     "test": "test"
   },
-  "type": "commonjs"
+  "type": "commonjs",
+  "files": [
+    "dist",
+    "templates",
+    "skills",
+    "docs",
+    "README.md"
+  ]
 }

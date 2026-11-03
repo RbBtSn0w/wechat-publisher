@@ -13,9 +13,11 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
         run: |
           if [ "${BASE_REF}" = "main" ]; then
-            if [ "${HEAD_REF}" = "develop" ]; then
+            if [ "${HEAD_REF}" = "develop" ] && [ "${HEAD_REPO}" = "${BASE_REPO}" ]; then
               echo "Allowing release PR: develop -> main"
               exit 0
             fi

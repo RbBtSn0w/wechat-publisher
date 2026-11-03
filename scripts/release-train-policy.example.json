@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "repository": "RbBtSn0w/wechat-publisher",
+  "repository_id": 1174169063,
+  "stable_branch": "main",
+  "integration_branch": "develop",
+  "mode": "retained",
+  "sync_strategy": "reviewed-pr",
+  "sync_prefix": "release-train/sync",
+  "checkpoint_prefix": "release-train/checkpoints",
+  "state_dir": "/Users/snow/Library/Application Support/wechat-publisher-release-train/state",
+  "required_checks": [
+    "Continuous Integration",
+    "Validate base branch"
+  ],
+  "writer_model": "cooperative-single-host",
+  "merge_method": "merge"
+}

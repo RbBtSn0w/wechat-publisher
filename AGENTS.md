@@ -37,7 +37,7 @@ All agents MUST adhere to the principles, boundaries, and workflows defined here
 ### CI/CD Guardrails
 - **No Implicit Audits**: `npm ci` MUST always pass `--no-audit --no-fund` across all workflow files to prevent npm registry advisory API stalls.
 - **No Interactive Headless Deadlocks**: CLI tools executed in automation or subprocesses (e.g. `npx`, `pnpm`) MUST pass non-interactive flags (e.g., `npx --yes`).
-- **Preserve `[skip ci]` on Sync**: The reverse sync workflow (`sync-main-to-develop.yml`) MUST use `git merge --no-ff origin/main` so that fast-forward merges do not discard `-m "... [skip ci]"`, preventing infinite CI loops.
+- **Preserve `[skip ci]` on Sync**: The reverse sync workflow (`sync-main-to-develop.yml`) MUST use the shared reviewed-PR controller. A human merges the recorded sync PR with a merge commit containing `[skip ci]`; agents never merge or directly update either trunk.
 - **No Swallowed Logs**: Whenever an automated publish step redirects stderr to a temporary log (e.g. `$publish_log`), failure branches MUST emit `cat "$publish_log" >&2` to preserve diagnostics.
 - **Unambiguous Cron Times**: Workflow cron expressions must be accompanied by explicit Beijing time (UTC+8) comments (e.g. `# Every Friday at 15:00 Beijing time (UTC+8) -> 07:00 UTC`).
 - **No Direct Secret Access in Step Conditions**: Never reference `secrets.*` directly inside step-level `if:` conditions. Pass secrets via `env:` and check presence inside the shell runner (e.g. `if [ -z "$MY_SECRET" ]; then exit 0; fi`).
@@ -92,7 +92,7 @@ npm run build
 - **Entity Decoding Invariant**:
   - When extracting link text or titles for footnote generation, decode HTML entities in a single regex pass or ensure `&amp;` is decoded last, preventing multi-pass re-decoding vulnerabilities (e.g. `&amp;lt;` -> `<`).
 - **Media Processing**:
-  - Local images (`local://`) are uploaded to WeChat CDN; remote images are downloaded, hashed in `.wechat-cache.json`, and uploaded.
+  - Local images (`local://`) are uploaded to WeChat CDN; remote images are downloaded and fingerprinted. Upload results use the account/endpoint-scoped `.temp/resource-cache-v2/` cache; the legacy `.wechat-cache.json` is retained without importing credentials.
 
 ---
 

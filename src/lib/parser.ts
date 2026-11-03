@@ -1,4 +1,5 @@
 import yaml from 'yaml';
+import { maskProtectedRegions, findFencedCodeRegions, replaceSourceRegions, SourceScanOptions } from './source-regions';
 import fs from 'fs';
 import { BlogPost, ConversionDiagnostic, WeChatArticleType } from '../types';
 
@@ -49,24 +50,17 @@ export function parseMarkdown(filePath: string): Partial<BlogPost> {
 export function normalizeJekyllMarkdown(markdown: string): string {
   // Chirpy/Jekyll attribute lists are presentation hints that marked does not
   // understand. Remove them while preserving the Markdown link itself.
-  return markdown.replace(/(\]\([^\n]*?\))\{:[^}\n]+\}/g, '$1');
+  const visible = maskProtectedRegions(markdown);
+  const edits = [...visible.matchAll(/(\]\([^\n]*?\))\{:[^}\n]+\}/g)].map(match => ({ start: match.index! + match[1].length, end: match.index! + match[0].length, replacement: '' }));
+  return replaceSourceRegions(markdown, edits);
 }
 
 export function findUnsupportedMarkdown(markdown: string, sourcePath?: string): ConversionDiagnostic[] {
   const diagnostics: ConversionDiagnostic[] = [];
-  const lines = markdown.split(/\r?\n/);
-  let fence: string | null = null;
+  const lines = maskProtectedRegions(markdown).split(/\r?\n/);
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!fence) fence = fenceMatch[1][0];
-      else if (fenceMatch[1][0] === fence) fence = null;
-      continue;
-    }
-    if (fence) continue;
-
     if (/^\s*>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i.test(line)) {
       diagnostics.push({
         code: 'UNSUPPORTED_GFM_ALERT',
@@ -101,115 +95,82 @@ function mathKey(expression: string, display: boolean): string {
   return `${display ? 'display' : 'inline'}:${expression}`;
 }
 
-export function extractMathExpressions(markdown: string): MathExpression[] {
-  const expressions: MathExpression[] = [];
-  const lines = markdown.split(/\r?\n/);
-  let fence: string | null = null;
+interface MathOccurrence extends MathExpression { start: number; end: number }
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!fence) fence = fenceMatch[1][0];
-      else if (fenceMatch[1][0] === fence) fence = null;
-      continue;
-    }
-    if (fence) continue;
-
-    const displayStart = line.indexOf('$$');
-    if (displayStart >= 0) {
-      const displayEnd = line.indexOf('$$', displayStart + 2);
-      if (displayEnd > displayStart + 2) {
-        const expression = line.slice(displayStart + 2, displayEnd).trim();
-        const source = line.slice(displayStart, displayEnd + 2);
-        expressions.push({ key: mathKey(expression, true), source, expression, display: true });
-        continue;
-      }
-      const collected: string[] = [];
-      for (let end = index + 1; end < lines.length; end += 1) {
-        if (lines[end].includes('$$')) {
-          const closeIndex = lines[end].indexOf('$$');
-          collected.push(lines[end].slice(0, closeIndex));
-          const expression = collected.join('\n').trim();
-          const source = lines.slice(index, end + 1).join('\n');
-          expressions.push({ key: mathKey(expression, true), source, expression, display: true });
-          index = end;
-          break;
-        }
-        collected.push(lines[end]);
-      }
-      continue;
-    }
-
-    const inlineRegex = /(?<!\\)\$(?!\$)([^\n$]+?)(?<!\\)\$(?!\$)/g;
-    let match: RegExpExecArray | null;
-    while ((match = inlineRegex.exec(line)) !== null) {
-      const expression = match[1].trim();
-      expressions.push({ key: mathKey(expression, false), source: match[0], expression, display: false });
-    }
+function findMathOccurrences(markdown: string): MathOccurrence[] {
+  const visible = maskProtectedRegions(markdown);
+  const pattern = /(?<!\\)\$\$([\s\S]+?)(?<!\\)\$\$|(?<![\\$])\$(?!\$)([^\n$]+?)(?<!\\)\$(?!\$)/g;
+  const result: MathOccurrence[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(visible))) {
+    const display = match[1] !== undefined;
+    const expression = (match[1] ?? match[2]).trim();
+    result.push({ key: mathKey(expression, display), source: markdown.slice(match.index, pattern.lastIndex), expression, display, start: match.index, end: pattern.lastIndex });
   }
+  return result;
+}
 
-  return expressions;
+export function extractMathExpressions(markdown: string): MathExpression[] {
+  return findMathOccurrences(markdown).map(({ key, source, expression, display }) => ({ key, source, expression, display }));
 }
 
 export function replaceMathExpressions(markdown: string, replacements: Record<string, string>): string {
-  let result = markdown;
-  for (const expression of extractMathExpressions(markdown)) {
-    const replacement = replacements[expression.key];
-    if (replacement) result = result.split(expression.source).join(replacement);
-  }
-  return result;
+  return replaceSourceRegions(markdown, findMathOccurrences(markdown).filter(item => replacements[item.key]).map(item => ({ ...item, replacement: replacements[item.key] })));
 }
 
-export function extractImagePaths(markdown: string): string[] {
-  const paths = new Set<string>();
-  const lines = markdown.split(/\r?\n/);
-  const visibleLines: string[] = [];
-  let fence: { character: string; length: number } | null = null;
+export interface ResourceOccurrence { path: string; start: number; end: number; bareMarkdown?: boolean }
 
-  for (const line of lines) {
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!fence) {
-        fence = { character: fenceMatch[1][0], length: fenceMatch[1].length };
-      } else if (fenceMatch[1][0] === fence.character && fenceMatch[1].length >= fence.length) {
-        fence = null;
-      }
-      visibleLines.push('');
-      continue;
-    }
-    visibleLines.push(fence ? '' : line);
-  }
-  const visibleMarkdown = visibleLines.join('\n');
-
-  // Support optional Markdown titles and angle-bracket destinations.
-  const mdRegex = /!\[[^\]]*\]\(\s*(?:<([^>\r\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+function imageOccurrences(markdown: string, options: SourceScanOptions = {}): ResourceOccurrence[] {
+  const visible = maskProtectedRegions(markdown, options);
+  const occurrences: ResourceOccurrence[] = [];
+  const pattern = /!\[[^\]]*\]\(\s*(?:<([^>\r\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)|<img\b[^>]*>/gi;
   let match: RegExpExecArray | null;
-  while ((match = mdRegex.exec(visibleMarkdown)) !== null) {
-    paths.add((match[1] || match[2]).trim());
+  while ((match = pattern.exec(visible))) {
+    let resource = match[1] ?? match[2];
+    let offset: number;
+    if (resource !== undefined) {
+      offset = match[0].indexOf('](') + 2;
+      while (/\s/.test(match[0][offset])) offset += 1;
+      if (match[0][offset] === '<') offset += 1;
+    } else {
+      const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(match[0]);
+      if (!src) continue;
+      resource = src[1] ?? src[2] ?? src[3];
+      offset = src.index + src[0].indexOf('=') + 1;
+      while (/\s/.test(match[0][offset])) offset += 1;
+      if (/['"]/.test(match[0][offset])) offset += 1;
+    }
+    const start = match.index + offset;
+    occurrences.push({ path: resource, start, end: start + resource.length, bareMarkdown: match[2] !== undefined });
   }
-
-  // HTML attributes may appear in any order and may use single or double quotes.
-  const htmlRegex = /<img\b[^>]*>/gi;
-  const srcRegex = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
-  while ((match = htmlRegex.exec(visibleMarkdown)) !== null) {
-    const srcMatch = match[0].match(srcRegex);
-    if (srcMatch) paths.add((srcMatch[1] || srcMatch[2] || srcMatch[3]).trim());
-  }
-  return Array.from(paths);
+  return occurrences;
 }
 
-export function replaceImagePaths(markdown: string, replacements: Record<string, string>): string {
-  let result = markdown;
-  for (const [oldPath, newPath] of Object.entries(replacements)) {
-    const escapedPath = oldPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const markdownRegex = new RegExp(`(!\\[[^\\]]*\\]\\(\\s*)(<)?(?:${escapedPath})(?=>|\\s|\\))`, 'g');
-    const htmlRegex = new RegExp(`(<img\\b[^>]*\\bsrc\\s*=\\s*["']?)(?:${escapedPath})(?=["'\\s>])`, 'gi');
-    result = result
-      .replace(markdownRegex, (_match, prefix, angleBracket) => `${prefix}${angleBracket || ''}${newPath}`)
-      .replace(htmlRegex, (_match, prefix) => `${prefix}${newPath}`);
+/** Visible image destinations plus raw local placeholders, suitable for draft resolution. */
+export function findResourceOccurrences(source: string, options: SourceScanOptions = {}): ResourceOccurrence[] {
+  const images = imageOccurrences(source, options);
+  const pattern = /local:\/\/[^\s'")<>]+/g;
+  const visible = maskProtectedRegions(source, options);
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(visible))) {
+    if (!images.some(item => match!.index >= item.start && match!.index < item.end)) {
+      images.push({ path: match[0], start: match.index, end: pattern.lastIndex });
+    }
   }
-  return result;
+  return images.sort((a, b) => a.start - b.start);
+}
+
+export function extractImagePaths(markdown: string, options: SourceScanOptions = {}): string[] {
+  return [...new Set(imageOccurrences(markdown, options).map(item => item.path))];
+}
+
+export function replaceImagePaths(markdown: string, replacements: Record<string, string>, options: SourceScanOptions = {}): string {
+  return replaceSourceRegions(markdown, imageOccurrences(markdown, options)
+    .filter(item => Object.prototype.hasOwnProperty.call(replacements, item.path))
+    .map(item => {
+      const value = replacements[item.path];
+      return { ...item, replacement: item.bareMarkdown && /[\s()]/.test(value) ? `<${value}>` : value };
+    }));
 }
 
 export function resolveRelativeLinks(html: string, baseUrl: string): string {
@@ -220,20 +181,10 @@ export function resolveRelativeLinks(html: string, baseUrl: string): string {
 }
 
 export function extractMermaidBlocks(markdown: string): string[] {
-  const regex = /^( {0,3})(`{3,}|~{3,})[ \t]*mermaid(?:[ \t]+[^\r\n]*)?[ \t]*\r?\n([\s\S]*?)^\1\2[ \t]*(?:\r?\n|$)/gim;
-  const blocks: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(markdown)) !== null) {
-    blocks.push(match[3].trim());
-  }
-  return blocks;
+  return findFencedCodeRegions(markdown).filter(item => /^mermaid(?:\s|$)/i.test(item.info)).map(item => markdown.slice(item.contentStart, item.contentEnd).trim());
 }
 
 export function replaceMermaidBlocks(markdown: string, replacements: Record<string, string>): string {
-  const regex = /^( {0,3})(`{3,}|~{3,})[ \t]*mermaid(?:[ \t]+[^\r\n]*)?[ \t]*\r?\n([\s\S]*?)^\1\2[ \t]*(?:\r?\n|$)/gim;
-  return markdown.replace(regex, (match, _indent, _fence, code) => {
-    const replacement = replacements[code.trim()];
-    if (!replacement) return match;
-    return `\n\n${replacement.trim()}\n\n`;
-  });
+  const edits = findFencedCodeRegions(markdown).filter(item => /^mermaid(?:\s|$)/i.test(item.info)).map(item => ({ ...item, replacement: replacements[markdown.slice(item.contentStart, item.contentEnd).trim()] })).filter(item => item.replacement).map(item => ({ ...item, replacement: `\n\n${item.replacement.trim()}\n\n` }));
+  return replaceSourceRegions(markdown, edits);
 }

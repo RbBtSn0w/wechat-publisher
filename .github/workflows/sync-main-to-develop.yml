@@ -2,32 +2,76 @@ name: Sync main to develop
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  delete:
+  pull_request_target:
+    types: [closed]
+    branches: [main, develop]
   workflow_dispatch:
+  schedule:
+    # Every five minutes in Beijing time (UTC+8); minute cadence is identical in UTC.
+    - cron: '*/5 * * * *'
+
+concurrency:
+  group: wechat-publisher-lifecycle
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
 
 jobs:
   sync:
-    name: Sync main back to develop
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    name: Reconcile release lifecycle
+    if: vars.RELEASE_TRAIN_ENABLED == 'true'
+    runs-on: [self-hosted, release-train-wechat-publisher]
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout trusted main
+        uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: main
           fetch-depth: 0
-
-      - name: Merge main into develop
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Create repository App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-checks: read
+          permission-statuses: read
+          skip-token-revoke: false
+      - name: Reconcile trusted lifecycle policy
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TRAIN_POLICY_PATH: ${{ vars.RELEASE_TRAIN_POLICY_PATH }}
+          RELEASE_TRAIN_CONTROLLER_PATH: ${{ vars.RELEASE_TRAIN_CONTROLLER_PATH }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main develop
-          git checkout -B develop origin/develop
-          if [ "$(git rev-list --count develop..origin/main)" -gt 0 ]; then
-            echo "Syncing main back into develop..."
-            git merge --no-ff origin/main --no-edit -m "chore(repo): sync main to develop [skip ci]"
-            git push origin develop
-          else
-            echo "develop is already up to date with main."
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo '::error::Repository App token is required.'
+            exit 1
           fi
+          if python3 scripts/release-train-preflight.py \
+            --config "$RELEASE_TRAIN_POLICY_PATH" \
+            --controller "$RELEASE_TRAIN_CONTROLLER_PATH" \
+            --provenance scripts/release-train-controller.json \
+            --event-file "$GITHUB_EVENT_PATH" --reconcile; then
+            echo 'Lifecycle reconciliation succeeded; inspect controller output for its phase.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            result=$?
+            echo 'Lifecycle reconciliation failed or entered HOLD. Preserve journal/checkpoints and inspect logs.' >> "$GITHUB_STEP_SUMMARY"
+            exit "$result"
+          fi
+      - name: Report lifecycle failure
+        if: failure()
+        run: echo 'Lifecycle did not complete. Check App credentials, controller output and preserved journal before retrying.' >> "$GITHUB_STEP_SUMMARY"
