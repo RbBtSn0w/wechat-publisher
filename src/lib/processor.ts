@@ -156,6 +156,10 @@ export async function preparePostWithReport(
   diagnostics.push(...rendered.diagnostics.filter(issue => issue.code !== 'LOCAL_IMAGE_UNRESOLVED')
     .map(issue => ({ ...issue, sourcePath: filePath })));
   const htmlTemplate = neuterLinksToSpans(rendered.html);
+  const preparedTokens = new Set([...assets.values()].map(asset => asset.token!));
+  if (extractImagePaths(htmlTemplate, { markdownInline: false }).some(resource => !preparedTokens.has(resource))) {
+    throw new Error('An image reference was not prepared. Use inline Markdown image syntax before publishing.');
+  }
   const previewPaths = Object.fromEntries([...assets.values()].map(asset => [asset.token!,
     asset.localPath.split('/').map(encodeURIComponent).join('/')]));
   const result: ProcessResult = { post: {

@@ -92,7 +92,7 @@ npm run build
 - **Entity Decoding Invariant**:
   - When extracting link text or titles for footnote generation, decode HTML entities in a single regex pass or ensure `&amp;` is decoded last, preventing multi-pass re-decoding vulnerabilities (e.g. `&amp;lt;` -> `<`).
 - **Media Processing**:
-  - Local images (`local://`) are uploaded to WeChat CDN; remote images are downloaded, hashed in `.wechat-cache.json`, and uploaded.
+  - Local images (`local://`) are uploaded to WeChat CDN; remote images are downloaded and fingerprinted. Upload results use the account/endpoint-scoped `.temp/resource-cache-v2/` cache; the legacy `.wechat-cache.json` is retained without importing credentials.
 
 ---
 

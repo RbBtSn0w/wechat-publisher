@@ -59,7 +59,8 @@ Feature/Fix PR -> develop -> beta package
 - 查询可有限重试；创建、更新草稿及素材上传只尝试一次。网络故障后出现 `WRITE_RESULT_UNKNOWN` 时，应先在微信后台核对结果，再决定是否重试；`latest` 会停止当前批次。
 - 先准备全部资源并检查可确定的错误，再上传。`publish-dir --all` 会先预检所有目录。覆盖确认取消时不上传素材。
 - 最终 CDN URL 长度只能在上传后确认；真实 payload 仍会复检，临界超限可能留下已上传素材。工具会报告情况，不自动删除素材或回滚远端写入。
-- Markdown 与 JSON 导出的本地图片都会验证真实内容并内联为 data URI；读取失败直接终止，技术代码示例保持原文。远端图片 URL 保持原有行为。BMP 转换依赖 macOS 原生 `sips`，其他平台会明确报错。
+- Markdown 与 JSON 导出的本地图片都会验证真实内容并内联为 data URI；读取失败直接终止，技术代码示例保持原文。远端图片 URL 保持原有行为。SVG、未压缩 Windows BMP 会转换为 PNG，BMP 转换不再依赖 macOS；BMP 上限为 64 MiB、1600 万像素，压缩、bitfield 与 OS/2 编码会明确拒绝。
+- 导出支持 Markdown 引用式图片；发布时请使用行内图片语法 `![说明](image.png)`。渲染后未被准备阶段绑定的图片会在任何微信上传前报错，避免遗漏资源。
 - 旧缓存保留，不猜测其账号归属，也不自动导入新命名空间。升级后首次发布可能重新上传；缓存落盘失败会告警，但不会丢弃本次成功结果。多进程使用同一素材仍不承诺仅上传一次。
 
 ### 用户使用流 (CLI & WeChat Sync)
@@ -232,7 +233,8 @@ WECHAT_APP_SECRET=您的微信AppSecret
 
 - `wechat.config.yml`: 基础配置。
 - `.env`: 敏感凭证，**请勿提交到版本库**。
-- `.wechat-cache.json`: 图片与 URL 映射缓存。
+- `.temp/resource-cache-v2/`: 按公众号与 API 地址隔离的上传缓存。
+- `.wechat-cache.json`: 旧版缓存，保留但不再读取或导入。
 - `.mermaid-cache/`: 存储生成的 Mermaid 图片。
 
 ---

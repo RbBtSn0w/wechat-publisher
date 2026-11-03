@@ -6,7 +6,8 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { loadConfig } from '../src/lib/config';
 import { publishDirCommand } from '../src/commands/publish-dir';
 import { Uploader } from '../src/lib/uploader';
-import { WeChatAPIClient } from '../src/lib/api-client';
+import { UnknownWriteOutcomeError, WeChatAPIClient } from '../src/lib/api-client';
+import { TEMP_PATHS } from '../src/lib/constants';
 
 vi.mock('../src/lib/config', () => ({
   loadConfig: vi.fn(() => {
@@ -177,3 +178,39 @@ test('publish-dir --all validates later directories before uploading the first',
 });
 
 
+test('publish-dir --all stops after an unknown write without uploading subsequent directories', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-batch-unknown-'));
+  try {
+    vi.spyOn(TEMP_PATHS, 'base', 'get').mockReturnValue(path.join(root, 'cache'));
+    for (const name of ['01-first', '02-second']) {
+      const directory = path.join(root, name);
+      fs.mkdirSync(directory);
+      fs.writeFileSync(path.join(directory, 'image.png'), validPng);
+      fs.writeFileSync(path.join(directory, 'draft.json'), JSON.stringify({ articles: [{
+        title: name,
+        content: '<img src="local://image.png">',
+        thumb_media_id: 'existing-cover',
+      }] }));
+    }
+    vi.mocked(loadConfig).mockReturnValue({ appId: 'isolated-account', appSecret: '', postsDir: '.', assetsDir: root });
+    const upload = vi.spyOn(Uploader.prototype, 'uploadImage').mockResolvedValue('https://wechat/image');
+    const add = vi.spyOn(WeChatAPIClient.prototype, 'addDraft').mockRejectedValue(new UnknownWriteOutcomeError('Add draft'));
+    const logs: string[] = [];
+    const errors: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation(message => logs.push(String(message)));
+    vi.spyOn(console, 'error').mockImplementation(message => errors.push(String(message)));
+    vi.spyOn(process, 'exit').mockImplementation(code => { throw new Error(`process.exit(${code})`); });
+
+    await expect(publishDirCommand(root, { all: true })).rejects.toThrow('process.exit(1)');
+
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(add.mock.calls[0][0][0].title).toBe('01-first');
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(upload.mock.calls[0][0]).toBe(path.join(root, '01-first', 'image.png'));
+    expect(errors.join('\n')).toContain('remote write result is unknown');
+    expect(errors.join('\n')).toContain('verify the remote state before retrying');
+    expect(logs.join('\n')).not.toContain('Batch completed');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

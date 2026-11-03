@@ -92,6 +92,13 @@ test('ordinary relative images survive an assets directory with spaces and paren
   expect(uploader.uploadImage).toHaveBeenCalledTimes(1);
 });
 
+test('image references not bound by preparation fail before any upload', async () => {
+  const { post, config, uploader } = fixture('![body][figure]\n\n[figure]: body.png');
+  await expect(processPostWithReport(post, config, uploader as unknown as Uploader)).rejects.toThrow(/image reference/i);
+  expect(uploader.uploadImage).not.toHaveBeenCalled();
+  expect(uploader.uploadPermanentImage).not.toHaveBeenCalled();
+});
+
 test('preparation rejects an upload-incompatible extension even with valid image bytes', async () => {
   fs.copyFileSync(path.join(directory, 'body.png'), path.join(directory, 'disguised.webp'));
   const { post, config } = fixture(`![good](${path.join(directory, 'body.png')})\n![bad](${path.join(directory, 'disguised.webp')})`);

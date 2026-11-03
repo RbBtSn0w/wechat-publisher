@@ -103,6 +103,26 @@ describe('validateCoverImage', () => {
 });
 
 describe('runPreflightCheck', () => {
+  it('checks source link placeholders once while allowing resolved local images', async () => {
+    const result = await runPreflightCheck({
+      sourceMarkdown: '[TODO: missing](https://example.com)\n\n![Figure](local://image.png)',
+      content: '<a href="https://example.com">TODO: missing</a><img src="data:image/png;base64,AA==">',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toEqual([expect.objectContaining({ severity: 'error', line: 1 })]);
+  });
+
+  it('still rejects unresolved local placeholders in final HTML when source Markdown is supplied', async () => {
+    const result = await runPreflightCheck({
+      sourceMarkdown: 'Clean source',
+      content: '<p>local://missing.png</p>',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toEqual([expect.objectContaining({ severity: 'error', line: 1 })]);
+  });
+
   it('combines text and image validation and evaluates passed status', async () => {
     const result = await runPreflightCheck({
       content: 'Clean text',

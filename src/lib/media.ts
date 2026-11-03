@@ -1,8 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { decode as decodeBmp } from 'bmp-ts';
 import sharp from 'sharp';
 
 function isContained(baseDir: string, candidate: string): boolean {
@@ -24,23 +22,79 @@ export function resolveContainedFile(baseDir: string, relativePath: string): str
 
 const portableMime: Record<string, string> = { jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' };
 
+const MAX_BMP_BYTES = 64 * 1024 * 1024;
+const MAX_BMP_PIXELS = 16_000_000;
+
+async function convertBmpToPng(bytes: Buffer): Promise<Buffer> {
+  const invalid = (reason: string): never => { throw new Error(`Unsupported or invalid BMP: ${reason}`); };
+  if (bytes.length < 54 || bytes.toString('ascii', 0, 2) !== 'BM') invalid('missing Windows bitmap header');
+  const dibSize = bytes.readUInt32LE(14);
+  if (![40, 52, 56, 108, 124].includes(dibSize) || 14 + dibSize > bytes.length) invalid('unsupported or truncated DIB header');
+  const width = bytes.readInt32LE(18);
+  const signedHeight = bytes.readInt32LE(22);
+  const height = Math.abs(signedHeight);
+  if (width <= 0 || height === 0 || width * height > MAX_BMP_PIXELS) invalid('dimensions exceed the 16 MP limit or are invalid');
+  const bits = bytes.readUInt16LE(28);
+  if (bytes.readUInt16LE(26) !== 1 || ![1, 4, 8, 16, 24, 32].includes(bits)) invalid('unsupported planes or bit depth');
+  const decoderWidth = bits === 4 && width % 2 !== 0 ? width + 1 : width;
+  if (decoderWidth * height > MAX_BMP_PIXELS) invalid('decoder dimensions exceed the 16 MP limit');
+  if (bytes.readUInt32LE(30) !== 0) invalid('only uncompressed BI_RGB encoding is supported');
+  const colors = bytes.readUInt32LE(46);
+  if (colors > 256 || (bits <= 8 && colors > 2 ** bits)) invalid('palette count exceeds the bit depth or 256 entries');
+  const paletteCount = bits <= 8 ? colors || 2 ** bits : colors;
+  const paletteBytes = paletteCount * 4;
+  const headerEnd = 14 + dibSize;
+  const pixelOffset = bytes.readUInt32LE(10);
+  if (pixelOffset < headerEnd + paletteBytes || pixelOffset > bytes.length) invalid('palette or pixel offset is out of bounds');
+  const pixelBytes = Math.ceil(width * bits / 32) * 4 * height;
+  if (pixelBytes > bytes.length - pixelOffset) invalid('truncated pixel scanlines');
+
+  // bmp-ts reads pixels immediately after the palette and applies extended-header masks.
+  // Normalize the admitted BI_RGB container; the dependency still owns all pixel decoding.
+  // Odd-width 4-bit decoding stops early upstream. A virtual trailing pixel keeps
+  // scanline strides unchanged; fill unused palette slots, then crop that pixel with Sharp.
+  const decoderPaletteCount = decoderWidth !== width ? 16 : paletteCount;
+  const normalized = Buffer.concat([
+    bytes.subarray(0, 54),
+    bytes.subarray(headerEnd, headerEnd + paletteBytes),
+    Buffer.alloc((decoderPaletteCount - paletteCount) * 4),
+    bytes.subarray(pixelOffset, pixelOffset + pixelBytes),
+  ]);
+  normalized.writeUInt32LE(normalized.length, 2);
+  normalized.writeUInt32LE(54 + decoderPaletteCount * 4, 10);
+  normalized.writeUInt32LE(40, 14);
+  normalized.writeInt32LE(decoderWidth, 18);
+  normalized.writeUInt32LE(decoderPaletteCount, 46);
+  const decoded = decodeBmp(normalized);
+  const rgba = decoded.data;
+  // The decoder defaults to ABGR. BI_RGB alpha is reserved, so export opaque pixels.
+  // Its RGB555 channels stop at 248; normalize those five-bit values to full range.
+  const channelScale = bits === 16 ? 255 / 248 : 1;
+  for (let index = 0; index < rgba.length; index += 4) {
+    const red = rgba[index + 3];
+    const green = rgba[index + 2];
+    const blue = rgba[index + 1];
+    rgba[index] = Math.round(red * channelScale);
+    rgba[index + 1] = Math.round(green * channelScale);
+    rgba[index + 2] = Math.round(blue * channelScale);
+    rgba[index + 3] = 255;
+  }
+  return sharp(rgba, { raw: { width: decoderWidth, height, channels: 4 } })
+    .extract({ left: 0, top: 0, width, height }).png().toBuffer();
+}
+
 export async function readPortableImage(filePath: string): Promise<string> {
   const extension = path.extname(filePath).toLowerCase();
   if (!['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'].includes(extension)) {
     throw new Error(`Unsupported image format "${extension}" for local image "${filePath}".`);
   }
-  let bytes = fs.readFileSync(filePath);
-  // Bundled libvips lacks BMP decoding. macOS ImageIO supplies the existing native fallback.
-  if (extension === '.bmp' && bytes.subarray(0, 2).toString('ascii') === 'BM') {
-    if (process.platform !== 'darwin') throw new Error('BMP conversion requires macOS sips on this installation.');
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-media-'));
-    try {
-      const output = path.join(directory, 'image.png');
-      await promisify(execFile)('/usr/bin/sips', ['-s', 'format', 'png', filePath, '--out', output]);
-      bytes = fs.readFileSync(output);
-    } finally {
-      fs.rmSync(directory, { recursive: true, force: true });
-    }
+  if (extension === '.bmp' && fs.statSync(filePath).size > MAX_BMP_BYTES) {
+    throw new Error('BMP input exceeds the 64 MiB limit');
+  }
+  let bytes: Buffer = fs.readFileSync(filePath);
+  if (extension === '.bmp') {
+    if (bytes.length > MAX_BMP_BYTES) throw new Error('BMP input exceeds the 64 MiB limit');
+    bytes = await convertBmpToPng(bytes);
   }
   const image = sharp(bytes, { animated: true, failOn: 'warning' });
   const metadata = await image.metadata();

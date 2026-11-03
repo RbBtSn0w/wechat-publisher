@@ -16,13 +16,17 @@ export interface PreflightResult {
 }
 
 export function validatePlaceholderText(content: string, options: SourceScanOptions = {}): PreflightIssue[] {
+  return scanPlaceholderText(content, options);
+}
+
+function scanPlaceholderText(content: string, options: SourceScanOptions, kind: 'all' | 'text' | 'local' = 'all'): PreflightIssue[] {
   const issues: PreflightIssue[] = [];
   const lines = maskProtectedRegions(content, options).split(/\r?\n/);
 
-  const errorPatterns: { pattern: RegExp; desc: string }[] = [
+  const errorPatterns: { pattern: RegExp; desc: string; local?: boolean }[] = [
     { pattern: /\[TODO(?:[:\s][^\]]*)?\]/i, desc: 'Unresolved [TODO] placeholder' },
     { pattern: /【待补充[^】]*】/i, desc: 'Unresolved 【待补充】 placeholder' },
-    { pattern: /local:\/\/[^\s'")<>]+/i, desc: 'Unresolved raw local:// image placeholder' },
+    { pattern: /local:\/\/[^\s'")<>]+/i, desc: 'Unresolved raw local:// image placeholder', local: true },
   ];
 
   const warningPatterns: { pattern: RegExp; desc: string }[] = [
@@ -33,7 +37,8 @@ export function validatePlaceholderText(content: string, options: SourceScanOpti
   lines.forEach((visibleProse, idx) => {
     const lineNum = idx + 1;
 
-    for (const { pattern, desc } of errorPatterns) {
+    for (const { pattern, desc, local } of errorPatterns) {
+      if ((kind === 'text' && local) || (kind === 'local' && !local)) continue;
       if (pattern.test(visibleProse)) {
         issues.push({
           severity: 'error',
@@ -42,7 +47,7 @@ export function validatePlaceholderText(content: string, options: SourceScanOpti
         });
       }
     }
-    for (const { pattern, desc } of warningPatterns) {
+    for (const { pattern, desc } of kind === 'local' ? [] : warningPatterns) {
       if (pattern.test(visibleProse)) {
         issues.push({
           severity: 'warning',
@@ -119,6 +124,7 @@ export async function validateCoverImage(coverPath: string): Promise<PreflightIs
 
 export async function runPreflightCheck(options: {
   content: string;
+  sourceMarkdown?: string;
   coverPath?: string;
   strict?: boolean;
   markdownInline?: boolean;
@@ -126,7 +132,13 @@ export async function runPreflightCheck(options: {
   const issues: PreflightIssue[] = [];
 
   // 1. Text placeholders check
-  issues.push(...validatePlaceholderText(options.content, { markdownInline: options.markdownInline }));
+  if (options.sourceMarkdown !== undefined) {
+    // Rendering can remove placeholder syntax from link labels; media must be checked after resolution.
+    issues.push(...scanPlaceholderText(options.sourceMarkdown, {}, 'text'));
+    issues.push(...scanPlaceholderText(options.content, { markdownInline: false }, 'local'));
+  } else {
+    issues.push(...validatePlaceholderText(options.content, { markdownInline: options.markdownInline }));
+  }
 
   // 2. Cover image check
   if (options.coverPath) {
