@@ -31,7 +31,7 @@
   "license": "ISC",
   "dependencies": {
     "@rbbtsn0w/wechat-markdown": "^1.4.0",
-    "axios": "^1.13.6",
+    "axios": "^1.16.0",
     "bmp-ts": "^1.0.9",
     "commander": "^12.1.0",
     "dotenv": "^16.6.1",
@@ -71,5 +71,8 @@
     "skills",
     "docs",
     "README.md"
-  ]
+  ],
+  "overrides": {
+    "flatted": "3.4.2"
+  }
 }
