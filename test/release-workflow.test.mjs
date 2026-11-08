@@ -71,3 +71,8 @@ test('PR gates explain rejected targets and lint the actual squash suffix', () =
  assert.equal(check.env.PR_NUMBER, '${{ github.event.pull_request.number }}');
  assert.match(check.run, /printf '%s \(#%s\)/);
 });
+
+test('publication authority is explicitly passed into the writer process environment',()=>{
+ assert.equal(step('release','publish').env.RELEASE_ENABLED,'${{ vars.RELEASE_ENABLED }}');
+ assert.equal(step('recover','publish').env.RELEASE_ENABLED,'${{ vars.RELEASE_ENABLED }}');
+});

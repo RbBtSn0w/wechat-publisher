@@ -201,6 +201,7 @@ jobs:
         id: publish
         shell: bash
         env:
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
           CANDIDATE_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -300,6 +301,8 @@ jobs:
       - name: Record recovery result
         if: always()
         env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
           RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
           PUBLISH_OUTCOME: ${{ job.status == 'failure' && 'failure' || steps.publish.outcome }}
         run: node scripts/release-status.mjs recover
@@ -401,6 +404,8 @@ jobs:
           FINAL_DISABLED_RECOVERY_ARTIFACT_ID: ${{ needs['disabled-recovery'].outputs.result-artifact-id }}
           FINAL_DISABLED_RECOVERY_DOWNLOAD_OUTCOME: ${{ steps.collect-disabled-recovery.outcome }}
           FINAL_DISABLED_RECOVERY_RESULT: ${{ needs['disabled-recovery'].result }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
           FINAL_OPERATION: ${{ inputs.operation }}
           FINAL_VERIFY_RESULT: ${{ needs.verify.result }}
           FINAL_RELEASE_RESULT: ${{ needs.release.result }}
