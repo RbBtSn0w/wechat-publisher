@@ -21,6 +21,7 @@
     "build": "tsc && chmod +x dist/bin/wechat-pub.js",
     "start": "node dist/bin/wechat-pub.js",
     "test": "vitest run",
+    "test:release": "node --test \"test/release-*.test.mjs\"",
     "test:watch": "vitest",
     "lint": "eslint 'src/**/*.{ts,js}'",
     "format": "prettier --write 'src/**/*.{ts,js}'",

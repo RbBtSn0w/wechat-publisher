@@ -31,6 +31,23 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+      - name: Install the cadence parser
+        env:
+          RELEASE_TOOLS: ${{ runner.temp }}/release-cadence
+        run: npm install --prefix "$RELEASE_TOOLS" --ignore-scripts --no-audit --no-fund --save-exact yaml@2.9.1
+      - name: Check the actual release contract
+        id: release_contracts
+        env:
+          RELEASE_TOOLS: ${{ runner.temp }}/release-cadence
+        run: |
+          node --version
+          npm --version
+          node .github/release-train/sync.mjs check --consumer .
+          node .github/release-train/pipeline-contract.mjs check
+          node .github/release-train/cadence.mjs check
+      - name: Run release regressions
+        run: npm run test:release
+
       - name: Lint
         run: npm run lint
       - name: Test
