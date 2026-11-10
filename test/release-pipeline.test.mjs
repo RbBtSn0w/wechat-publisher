@@ -6,7 +6,8 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { prepare, publish } from '../scripts/release-payload.mjs';
 import { validatePayload } from '../scripts/release-recover.mjs';
-import { createPipelinePlan } from '../.github/release-train/pipeline-contract.mjs';
+import { createPipelinePlan, withPipelineResult, validateExecutionBindings } from '../.github/release-train/pipeline-contract.mjs';
+import { createResult } from '../.github/release-train/release-result.mjs';
 import { releaseEnv } from './helpers/release-env.mjs';
 const candidate = 'a'.repeat(40), version = '2.0.0';
 const notes = '## 2.0.0\n\n### BREAKING CHANGES\n\nKeep every original note.\n';
@@ -102,4 +103,23 @@ test('legacy finalizer retains explicit producer goals instead of current recove
   const result=JSON.parse(readFileSync(join(f.cwd,'release-result.json')));
   assert.deepEqual(result.intended_targets,['npm','github-packages']);assert.equal(result.pipeline,undefined);
  } finally {rmSync(f.cwd,{recursive:true,force:true});}
+});
+
+test('legacy producer requirements cannot disappear when the current composition changes',()=>{
+  const completed={status:'completed',candidate_sha:candidate,version,remote_id:'fixture/npm',observed_at:'2026-11-10T00:00:00Z'};
+  for(const status of ['failed','unknown']) {
+    const input={schema_version:2,candidate_sha:candidate,version,enabled:true,verification:'passed',concluded:true,asynchronous:true,intended_targets:['npm','original-channel'],targets:{npm:completed,'original-channel':{status}}};
+    const result=createResult(withPipelineResult(input,{config:composition(['npm'])}));
+    assert.equal(result.publication,'partial');
+    assert.deepEqual(result.intended_targets,['npm','original-channel']);
+    assert.equal(result.targets['original-channel'].status,status);
+    assert.equal(result.pipeline,undefined);
+  }
+});
+
+test('execution providers and jobs must be explicitly known to the caller',()=>{
+  const stage={id:'observe',execution:{provider:'github-action',job:'report'}};
+  assert.throws(()=>validateExecutionBindings({stages:[stage]},{'github-actions':['report']}),/Unknown execution binding/);
+  assert.throws(()=>validateExecutionBindings({stages:[{...stage,execution:{provider:'constructor',job:'report'}}]},{'github-actions':['report']}),/Unknown execution binding/);
+  assert.doesNotThrow(()=>validateExecutionBindings({stages:[{...stage,execution:{provider:'external-fixture',job:'observe'}}]},{'external-fixture':['observe']}));
 });
