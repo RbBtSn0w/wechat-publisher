@@ -3,7 +3,7 @@ import {
   replaceMermaidBlocks, normalizeJekyllMarkdown, findUnsupportedMarkdown,
   extractMathExpressions, replaceMathExpressions,
 } from './parser';
-import { neuterLinksToSpans } from './converter';
+import { neuterLinksToSpans, preserveCodeBlockSpaces } from './converter';
 import { AppConfig, BlogPost, ConversionDiagnostic, ConversionStats, ProcessResult } from '../types';
 import { Uploader } from './uploader';
 import { cacheScope, fingerprintFile, ResourceCache } from './cache';
@@ -151,12 +151,12 @@ export async function preparePostWithReport(
   // Bind resource identities before the SDK encodes destinations or HTML attributes.
   const tokens = Object.fromEntries([...assets.values()].map(asset => [asset.localPath, asset.token!]));
   const rendered = await renderMarkdownToWechat(replaceImagePaths(markdown, tokens), {
-    theme: LEGACY_THEME_NAME, siteUrl: config.siteUrl, renderMath: false, renderMermaid: false,
+    theme: LEGACY_THEME_NAME, siteUrl: config.siteUrl || undefined, renderMath: false, renderMermaid: false,
     footnoteLinks: false, gfmAlerts: false, macCodeBlock: true, tableScroller: false,
   });
   diagnostics.push(...rendered.diagnostics.filter(issue => issue.code !== 'LOCAL_IMAGE_UNRESOLVED')
     .map(issue => ({ ...issue, sourcePath: filePath })));
-  const htmlTemplate = neuterLinksToSpans(rendered.html);
+  const htmlTemplate = preserveCodeBlockSpaces(neuterLinksToSpans(rendered.html));
   const preparedTokens = new Set([...assets.values()].map(asset => asset.token!));
   if (extractImagePaths(htmlTemplate, { markdownInline: false }).some(resource => !preparedTokens.has(resource))) {
     throw new Error('An image reference was not prepared. Use inline Markdown image syntax before publishing.');

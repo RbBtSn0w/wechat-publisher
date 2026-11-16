@@ -24,6 +24,30 @@ describe('exportCommand', () => {
     process.exitCode = 0;
   });
 
+  it.each(['markdown', 'draft'])('preserves highlighted token spacing in %s file and clipboard exports', async mode => {
+    const output = path.join(tmpDir, 'code.html');
+    let source = tmpDir;
+    if (mode === 'markdown') {
+      source = path.join(tmpDir, 'post.md');
+      fs.writeFileSync(source, 'Body text stays readable.\n\n```swift\nclass CanvasNodeView: UIView {\n    func refreshBorder() {\n        print("hello world")\n    }\n}\n```');
+    } else {
+      fs.writeFileSync(path.join(tmpDir, 'draft.json'), JSON.stringify({
+        articles: [{ article_type: 'newspic', title: 'Code', content: '<p>Body text stays readable.</p><pre title="a > b"><code><span>class</span> <span>CanvasNodeView</span><br>    <span>func</span> <span>refreshBorder</span>() {<br><span>print</span>(<span>"hello world"</span>)<br>}</code></pre>' }],
+      }));
+    }
+
+    await exportCommand(source, { output, clip: true, strict: true });
+
+    const html = fs.readFileSync(output, 'utf8');
+    expect(html).toContain('class</span>&nbsp;<span');
+    expect(html).toContain('func</span>&nbsp;<span');
+    expect(html).toContain('hello world');
+    expect(html).not.toContain('hello&nbsp;world');
+    expect(html).toContain('Body text stays readable.');
+    if (mode === 'draft') expect(html).toContain('title="a > b"');
+    expect(copyRichTextToClipboard).toHaveBeenLastCalledWith(html);
+  });
+
   it.each(['[TODO: missing]', '[TBD]'])('rejects a source %s link before file or clipboard output', async placeholder => {
     const source = path.join(tmpDir, 'post.md');
     fs.writeFileSync(source, `${placeholder}(https://example.com)`);

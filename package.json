@@ -18,6 +18,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "prebuild": "npm update @rbbtsn0w/wechat-markdown --no-audit --no-fund --save=false || true",
     "build": "tsc && chmod +x dist/bin/wechat-pub.js",
     "start": "node dist/bin/wechat-pub.js",
     "test": "vitest run",
@@ -31,7 +32,7 @@
   "author": "RbBtSn0w",
   "license": "ISC",
   "dependencies": {
-    "@rbbtsn0w/wechat-markdown": "^1.4.0",
+    "@rbbtsn0w/wechat-markdown": "*",
     "axios": "^1.16.0",
     "bmp-ts": "^1.0.9",
     "commander": "^12.1.0",

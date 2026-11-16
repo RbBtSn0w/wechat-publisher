@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { decodeHtmlEntities, escapeHtml, neuterLinksToSpans, normalizeLinksAndFootnotes } from '../src/lib/converter';
+import { decodeHtmlEntities, escapeHtml, neuterLinksToSpans, normalizeLinksAndFootnotes, preserveCodeBlockSpaces } from '../src/lib/converter';
 
 test('neuterLinksToSpans converts anchor tags into styled, non-interactive spans', () => {
   const html = '<p>See <a href="https://example.com/docs">the docs</a> for more.</p>';
@@ -78,6 +78,41 @@ test('normalizeLinksAndFootnotes preserves WeChat internal links without footnot
   expect(result.footnotes).toHaveLength(0);
   expect(result.html).toBe(html);
   expect(result.html).not.toContain('参考链接');
+});
+
+test('preserveCodeBlockSpaces turns token separators inside pre into nbsp', () => {
+  const html = [
+    '<p>keep this space</p>',
+    '<pre style="white-space: pre;"><code><span style="color: #fff;">class</span> <span style="color: #0f0;">CanvasNodeView</span></code></pre>',
+  ].join('');
+  const result = preserveCodeBlockSpaces(html);
+
+  expect(result).toContain('keep this space');
+  expect(result).toContain('white-space: pre;');
+  expect(result).toContain('color: #fff;');
+  expect(result).toContain('class</span>&nbsp;<span style="color: #0f0;">CanvasNodeView</span>');
+  expect(result).not.toMatch(/<\/span> <span/);
+  expect(preserveCodeBlockSpaces(result)).toBe(result);
+});
+
+test('preserveCodeBlockSpaces preserves spaces inside code literals and outside blocks', () => {
+  const html = '<p>hello world</p><code>hello world</code><pre><code><span>print</span>(<span>"hello world"</span>)</code></pre>';
+  expect(preserveCodeBlockSpaces(html)).toBe(html);
+});
+
+test('preserveCodeBlockSpaces leaves quoted attributes and comments intact', () => {
+  const comment = '<!-- <pre>keep this space</pre> -->';
+  const html = `${comment}<pre title="a > b"><code><span title='a > b'>class</span> Canvas<img alt="a > b" src="image.png"></code></pre>`;
+  expect(preserveCodeBlockSpaces(html)).toBe(
+    `${comment}<pre title="a > b"><code><span title='a > b'>class</span>&nbsp;Canvas<img alt="a > b" src="image.png"></code></pre>`
+  );
+});
+
+test('preserveCodeBlockSpaces retains indentation without rewriting attribute tabs', () => {
+  const html = '<pre data-label="a\tb"><code>\tlet value = "hello world";<br>  next()</code></pre>';
+  const expected = '<pre data-label="a\tb"><code>&nbsp;&nbsp;&nbsp;&nbsp;let value = "hello world";<br>&nbsp;&nbsp;next()</code></pre>';
+  expect(preserveCodeBlockSpaces(html)).toBe(expected);
+  expect(preserveCodeBlockSpaces(expected)).toBe(expected);
 });
 
 test('normalizeLinksAndFootnotes honors appendSection = false', () => {

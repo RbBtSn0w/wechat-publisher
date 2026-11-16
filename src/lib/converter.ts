@@ -16,6 +16,29 @@ export function escapeHtml(input: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Compatibility for older SDK output and pre-rendered drafts: WeChat drops
+ * whitespace-only text nodes between highlighted tokens. Protect boundary
+ * spaces and indentation, keeping single spaces within code literals intact.
+ * Consume quoted attributes and comments whole so their contents stay intact.
+ */
+export function preserveCodeBlockSpaces(html: string): string {
+  let preDepth = 0;
+  return html.replace(
+    /(<!--[\s\S]*?(?:-->|$)|<(?:[^"'<>]|"[^"]*"|'[^']*')+>)|([^<]+)/g,
+    (match, tag: string | undefined, text: string | undefined) => {
+      if (tag) {
+        if (/^<pre[\s>]/i.test(tag)) preDepth += 1;
+        else if (/^<\/pre\s*>$/i.test(tag)) preDepth = Math.max(0, preDepth - 1);
+        return tag;
+      }
+      if (!preDepth) return match;
+      return text!.replace(/\t| {2,}|^ +| +$/gm, spaces =>
+        '&nbsp;'.repeat(spaces === '\t' ? 4 : spaces.length));
+    },
+  );
+}
+
 export function neuterLinksToSpans(html: string): string {
   // WeChat article content allows internal WeChat article links (mp.weixin.qq.com),
   // while external links are not clickable and converted to styled spans.

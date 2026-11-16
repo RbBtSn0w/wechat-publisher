@@ -6,7 +6,7 @@ import { normalizeJekyllMarkdown, parseMarkdown, extractImagePaths, replaceImage
 import { readPortableImage, resolveContainedFile } from '../lib/media';
 import { renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
 import { LEGACY_THEME_NAME } from '../lib/theme-registry';
-import { decodeHtmlEntities, normalizeLinksAndFootnotes } from '../lib/converter';
+import { decodeHtmlEntities, normalizeLinksAndFootnotes, preserveCodeBlockSpaces } from '../lib/converter';
 import { copyRichTextToClipboard } from '../lib/clipboard';
 import { runPreflightCheck } from '../lib/preflight';
 import {
@@ -154,7 +154,7 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
   for (const resource of extractImagePaths(baseHtml, scanOptions)) {
     replacements[resource] = await inlineImage(resource);
   }
-  baseHtml = replaceImagePaths(baseHtml, replacements, scanOptions);
+  baseHtml = preserveCodeBlockSpaces(replaceImagePaths(baseHtml, replacements, scanOptions));
 
   // 2. Run Preflight Inspection
   // Validate cover dimensions only in strict mode, consistent with publish-dir

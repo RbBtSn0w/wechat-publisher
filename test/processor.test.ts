@@ -111,6 +111,16 @@ test('processPostWithReport retains legacy styling for unsupported style names',
   fs.unlinkSync(filePath);
 });
 
+test('processPostWithReport accepts an empty optional site URL with the current SDK', async () => {
+  const filePath = makePost('Body text.', 'title: Empty Site URL\narticle_type: newspic');
+  try {
+    const result = await processPostWithReport(filePath, { ...config, siteUrl: '' });
+    expect(result.post.contentHtml).toContain('Body text.');
+  } finally {
+    fs.unlinkSync(filePath);
+  }
+});
+
 test('processPostWithReport does not warn about local image paths in dry-run (no uploader)', async () => {
   const downloaded = path.join(os.tmpdir(), `wechat-dryrun-${Date.now()}.png`);
   fs.writeFileSync(downloaded, validPng);
@@ -171,5 +181,28 @@ test('processPostWithReport renders code blocks with macCodeBlock decoration and
   expect(result.post.contentHtml).toContain('white-space: pre');
   expect(result.post.contentHtml).toContain('overflow-x: auto');
   expect(result.post.contentHtml).toContain('word-break: normal');
+  fs.unlinkSync(filePath);
+});
+
+test('processPostWithReport keeps spaces between highlighted code tokens', async () => {
+  const filePath = makePost(
+    [
+      '```swift',
+      'class CanvasNodeView: UIView {',
+      '    func refreshBorder() {}',
+      '    if UIDevice.current.orientation.isLandscape {}',
+      '}',
+      '```',
+    ].join('\n'),
+    'title: Code Spacing\narticle_type: newspic',
+  );
+  const result = await processPostWithReport(filePath, config);
+  const html = result.post.contentHtml;
+
+  expect(html).toContain('class</span>&nbsp;<span');
+  expect(html).toContain('func</span>&nbsp;<span');
+  expect(html).toContain('if</span>&nbsp;<span');
+  expect(html).not.toMatch(/<\/span> <span/);
+  expect(html).toContain('white-space: pre');
   fs.unlinkSync(filePath);
 });
