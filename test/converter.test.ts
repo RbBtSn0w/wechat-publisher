@@ -100,6 +100,11 @@ test('preserveCodeBlockSpaces preserves spaces inside code literals and outside 
   expect(preserveCodeBlockSpaces(html)).toBe(html);
 });
 
+test('preserveCodeBlockSpaces keeps repeated spaces and interpolation chunks inside literals', () => {
+  const html = '<pre><code><span style="display: block;"><span>"hello  world"</span><br><span>"hello <span>\\(name)</span> world"</span><br><span>"<span>\\(first)</span> <span>\\(last)</span>"</span></span></code></pre>';
+  expect(preserveCodeBlockSpaces(html)).toBe(html);
+});
+
 test('preserveCodeBlockSpaces leaves quoted attributes and comments intact', () => {
   const comment = '<!-- <pre>keep this space</pre> -->';
   const html = `${comment}<pre title="a > b"><code><span title='a > b'>class</span> Canvas<img alt="a > b" src="image.png"></code></pre>`;

@@ -19,22 +19,30 @@ export function escapeHtml(input: string): string {
 /**
  * Compatibility for older SDK output and pre-rendered drafts: WeChat drops
  * whitespace-only text nodes between highlighted tokens. Protect boundary
- * spaces and indentation, keeping single spaces within code literals intact.
+ * spaces and indentation at block containers. Inline spans can contain split
+ * string literals, so their text must retain its original characters.
  * Consume quoted attributes and comments whole so their contents stay intact.
  */
 export function preserveCodeBlockSpaces(html: string): string {
   let preDepth = 0;
+  const inlineSpans: boolean[] = [];
   return html.replace(
     /(<!--[\s\S]*?(?:-->|$)|<(?:[^"'<>]|"[^"]*"|'[^']*')+>)|([^<]+)/g,
     (match, tag: string | undefined, text: string | undefined) => {
       if (tag) {
         if (/^<pre[\s>]/i.test(tag)) preDepth += 1;
-        else if (/^<\/pre\s*>$/i.test(tag)) preDepth = Math.max(0, preDepth - 1);
+        else if (/^<\/pre\s*>$/i.test(tag)) {
+          preDepth = Math.max(0, preDepth - 1);
+          if (!preDepth) inlineSpans.length = 0;
+        } else if (preDepth && /^<span[\s>]/i.test(tag)) {
+          const style = tag.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2] || '';
+          inlineSpans.push(!/\bdisplay\s*:\s*(?:block|flex)\b/i.test(style));
+        } else if (preDepth && /^<\/span\s*>$/i.test(tag)) inlineSpans.pop();
         return tag;
       }
-      if (!preDepth) return match;
-      return text!.replace(/\t| {2,}|^ +| +$/gm, spaces =>
-        '&nbsp;'.repeat(spaces === '\t' ? 4 : spaces.length));
+      if (!preDepth || inlineSpans.includes(true)) return match;
+      return text!.replace(/^[ \t]+|[ \t]+$/gm, spaces =>
+        '&nbsp;'.repeat(spaces.replace(/\t/g, '    ').length));
     },
   );
 }

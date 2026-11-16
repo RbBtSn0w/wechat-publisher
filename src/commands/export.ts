@@ -154,7 +154,7 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
   for (const resource of extractImagePaths(baseHtml, scanOptions)) {
     replacements[resource] = await inlineImage(resource);
   }
-  baseHtml = preserveCodeBlockSpaces(replaceImagePaths(baseHtml, replacements, scanOptions));
+  baseHtml = replaceImagePaths(baseHtml, replacements, scanOptions);
 
   // 2. Run Preflight Inspection
   // Validate cover dimensions only in strict mode, consistent with publish-dir
@@ -182,9 +182,10 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
 
   // 3. Process Links & Footnotes
   const useFootnotes = options.footnotes ?? true;
-  const { html: finalHtml, footnotes } = normalizeLinksAndFootnotes(baseHtml, {
+  const { html: linkedHtml, footnotes } = normalizeLinksAndFootnotes(baseHtml, {
     appendSection: useFootnotes,
   });
+  const finalHtml = preserveCodeBlockSpaces(linkedHtml);
 
   // 4. Output / Clipboard
   if (options.output) {

@@ -48,6 +48,20 @@ describe('exportCommand', () => {
     expect(copyRichTextToClipboard).toHaveBeenLastCalledWith(html);
   });
 
+  it('extracts code-block link labels before protecting boundary whitespace', async () => {
+    const output = path.join(tmpDir, 'links.html');
+    fs.writeFileSync(path.join(tmpDir, 'draft.json'), JSON.stringify({
+      articles: [{ article_type: 'newspic', title: 'Links', content: '<pre><a href="https://example.com"> link </a></pre>' }],
+    }));
+
+    await exportCommand(tmpDir, { output, clip: true, strict: true });
+
+    const html = fs.readFileSync(output, 'utf8');
+    expect(html).toContain('link: <span');
+    expect(html).not.toContain('&amp;nbsp;');
+    expect(copyRichTextToClipboard).toHaveBeenLastCalledWith(html);
+  });
+
   it.each(['[TODO: missing]', '[TBD]'])('rejects a source %s link before file or clipboard output', async placeholder => {
     const source = path.join(tmpDir, 'post.md');
     fs.writeFileSync(source, `${placeholder}(https://example.com)`);
