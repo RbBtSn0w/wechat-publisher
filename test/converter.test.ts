@@ -105,6 +105,25 @@ test('preserveCodeBlockSpaces keeps repeated spaces and interpolation chunks ins
   expect(preserveCodeBlockSpaces(html)).toBe(html);
 });
 
+test.each([
+  'data-style="display: block;"',
+  'title=" style=\'display: block;\'"',
+  'data-style="display: block;" style="color: red;"',
+])('preserveCodeBlockSpaces ignores style decoys in inline attributes: %s', attributes => {
+  const html = `<pre><code><span ${attributes}>"hello <span>\\(name)</span> world"</span></code></pre>`;
+  expect(preserveCodeBlockSpaces(html)).toBe(html);
+});
+
+test('preserveCodeBlockSpaces uses the real block style after a decoy attribute', () => {
+  const html = '<pre><code><span data-style="color: red;" style="display: block;"><span>class</span> <span>Canvas</span></span></code></pre>';
+  expect(preserveCodeBlockSpaces(html)).toContain('class</span>&nbsp;<span>Canvas');
+});
+
+test('preserveCodeBlockSpaces handles long whitespace and boolean attributes', () => {
+  const html = `<pre><span hidden${' '.repeat(64_000)}>"hello <span>name</span> world"</span></pre>`;
+  expect(preserveCodeBlockSpaces(html)).toBe(html);
+});
+
 test('preserveCodeBlockSpaces leaves quoted attributes and comments intact', () => {
   const comment = '<!-- <pre>keep this space</pre> -->';
   const html = `${comment}<pre title="a > b"><code><span title='a > b'>class</span> Canvas<img alt="a > b" src="image.png"></code></pre>`;

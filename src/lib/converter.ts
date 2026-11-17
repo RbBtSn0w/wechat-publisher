@@ -35,7 +35,10 @@ export function preserveCodeBlockSpaces(html: string): string {
           preDepth = Math.max(0, preDepth - 1);
           if (!preDepth) inlineSpans.length = 0;
         } else if (preDepth && /^<span[\s>]/i.test(tag)) {
-          const style = tag.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2] || '';
+          // Consume whole attributes, including boolean ones; never restart a greedy whitespace match.
+          const attributes = tag.slice(5, -1).matchAll(/([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g);
+          const styleAttribute = [...attributes].find(attribute => attribute[1].toLowerCase() === 'style');
+          const style = styleAttribute?.[2] ?? styleAttribute?.[3] ?? styleAttribute?.[4] ?? '';
           inlineSpans.push(!/\bdisplay\s*:\s*(?:block|flex)\b/i.test(style));
         } else if (preDepth && /^<\/span\s*>$/i.test(tag)) inlineSpans.pop();
         return tag;
