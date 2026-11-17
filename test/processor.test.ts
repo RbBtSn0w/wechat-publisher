@@ -111,6 +111,16 @@ test('processPostWithReport retains legacy styling for unsupported style names',
   fs.unlinkSync(filePath);
 });
 
+test('processPostWithReport accepts the default empty optional site URL with SDK v2', async () => {
+  const filePath = makePost('Body text.', 'title: Empty Site URL\narticle_type: newspic');
+  try {
+    const result = await processPostWithReport(filePath, { ...config, siteUrl: '' });
+    expect(result.post.contentHtml).toContain('Body text.');
+  } finally {
+    fs.unlinkSync(filePath);
+  }
+});
+
 test('processPostWithReport does not warn about local image paths in dry-run (no uploader)', async () => {
   const downloaded = path.join(os.tmpdir(), `wechat-dryrun-${Date.now()}.png`);
   fs.writeFileSync(downloaded, validPng);

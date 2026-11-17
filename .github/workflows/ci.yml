@@ -30,7 +30,9 @@ jobs:
           echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Verify the Markdown dependency contract
+        run: npm run check:dependencies
       - name: Install the cadence parser
         env:
           RELEASE_TOOLS: ${{ runner.temp }}/release-cadence
@@ -54,6 +56,8 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build
+      - name: Reject build-time dependency changes
+        run: git diff --exit-code -- package.json package-lock.json
       - name: Verify isolated package
         run: |
           mkdir -p "$RUNNER_TEMP/packed"

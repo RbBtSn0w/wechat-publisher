@@ -72,7 +72,7 @@ npm run build
 
 ### Package Identity & Runtime
 - **Package**: `@rbbtsn0w/wechat-publisher`
-- **Node Engine**: `>=22.12.0`
+- **Node Engine**: `>=22.14.0`, compatible with the pinned Markdown SDK.
 - **Module System**: TypeScript source in `src/`, compiled CommonJS output in `dist/`.
 
 ### Core Responsibilities & Boundaries
