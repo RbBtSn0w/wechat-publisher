@@ -26,7 +26,7 @@ test('sanitizer keeps configured non-text content discarded across an implied an
   expect(html).not.toContain('untrusted.example');
 });
 
-test('Markdown v1 still renders a fresh formula PNG and sanitizes article images after dependency patches', async () => {
+test('the pinned Markdown SDK renders a fresh formula PNG and sanitizes article images', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'publisher-dependency-formula-'));
   try {
     const result = await renderMarkdownToWechat(

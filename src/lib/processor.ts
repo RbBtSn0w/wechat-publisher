@@ -151,7 +151,7 @@ export async function preparePostWithReport(
   // Bind resource identities before the SDK encodes destinations or HTML attributes.
   const tokens = Object.fromEntries([...assets.values()].map(asset => [asset.localPath, asset.token!]));
   const rendered = await renderMarkdownToWechat(replaceImagePaths(markdown, tokens), {
-    theme: LEGACY_THEME_NAME, siteUrl: config.siteUrl, renderMath: false, renderMermaid: false,
+    theme: LEGACY_THEME_NAME, siteUrl: config.siteUrl || undefined, renderMath: false, renderMermaid: false,
     footnoteLinks: false, gfmAlerts: false, macCodeBlock: true, tableScroller: false,
   });
   diagnostics.push(...rendered.diagnostics.filter(issue => issue.code !== 'LOCAL_IMAGE_UNRESOLVED')

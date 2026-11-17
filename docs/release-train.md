@@ -120,8 +120,50 @@ actionlint .github/workflows/release.yml
 
 ## Compatibility boundary
 
-Publisher retains its existing `@rbbtsn0w/wechat-markdown` v1 dependency range.
-This release automation does not couple Publisher to the Markdown v2 migration.
+Publisher pins `@rbbtsn0w/wechat-markdown` to an exact stable version, currently
+`2.1.3`, and requires Node.js 22.14.0 or newer. Its build runs the read-only
+`check:dependencies` guard before compilation. The manifest, lockfile requirement,
+locked SDK and actually resolved SDK must agree; the publisher's declared Node
+range must be supported by the SDK. Builds never update dependencies.
+
+### Markdown upgrade and package acceptance
+
+1. Markdown publishes a stable version to the registry. Source commits or a
+   locally packed SDK do not establish registry availability.
+2. Dependabot checks this first-party SDK daily at 09:00 Beijing time (UTC+8),
+   excludes it from cooldown and opens an individual upgrade PR. It updates both
+   manifest and lockfile with an exact requirement. The guard rejects ranges,
+   tags, prereleases and inconsistent resolutions. Other dependencies are outside
+   this automation's allowlist.
+3. The PR uses `fix(deps)` so an accepted runtime upgrade produces a publisher
+   release under the existing semantic-release rules. Maintainers must review
+   major SDK/API or Node-floor changes and retain a `BREAKING CHANGE:` declaration
+   when required, especially because publisher re-exports the SDK API. The guard
+   blocks SDK upgrades that would invalidate the declared Node range. There is no
+   automatic merge or publication from dependency PRs.
+4. CI installs the committed lockfile without lifecycle scripts, checks the
+   dependency contract, tests, builds and rejects manifest/lockfile mutations.
+   Release verification uses the same guarded build and package acceptance
+   script. The selected SDK remains frozen for the candidate; newer upstream
+   releases are proposed in another PR rather than substituted during publication.
+5. `test:package` installs the actual archive in an empty consumer. It resolves
+   the SDK from that installed package, checks its exact version against the
+   source candidate, and runs rendering, formula PNG generation, publisher
+   processing, highlighted/escaped code, links and local media through the
+   installed API/CLI. Missing media must fail without writing a partial export.
+   These fixtures are synthetic; no WeChat API writes or private articles are used.
+
+The published package does not carry `package-lock.json`. The exact direct SDK
+requirement binds that dependency for consumers; it does not freeze every
+transitive dependency. Full consumer dependency-tree locking would require a
+separate shrinkwrap/distribution decision.
+
+Dependabot configuration becomes effective after a maintainer merges it into the
+default branch. A real upgrade PR and subsequent registry publication remain
+separate operational acceptance; local checks and this configuration do not
+prove either. Existing per-repository Friday schedules have no cross-repository
+ordering guarantee, and a newly published Markdown version cannot be adopted by
+publisher until its upgrade PR is validated and merged.
 
 ## Historical local readiness evidence (2026-11-07)
 

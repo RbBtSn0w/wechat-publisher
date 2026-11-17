@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: cron
+      # Check every day at 09:00 Beijing time (UTC+8).
+      cronjob: "0 9 * * *"
+      timezone: Asia/Shanghai
+    allow:
+      - dependency-name: "@rbbtsn0w/wechat-markdown"
+    versioning-strategy: increase
+    cooldown:
+      # This first-party SDK can be proposed as soon as it is published.
+      exclude:
+        - "@rbbtsn0w/wechat-markdown"
+    commit-message:
+      prefix: "fix(deps)"
+    open-pull-requests-limit: 3

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { verifyMarkdownDependency } from './markdown-dependency.mjs';
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-package-smoke-'));
 const run = (command, args, cwd = process.cwd()) => execFileSync(command, args, {
@@ -11,6 +12,7 @@ const run = (command, args, cwd = process.cwd()) => execFileSync(command, args, 
 try {
   const tarball = process.argv[2];
   if (!tarball || !path.isAbsolute(tarball)) throw new Error('Expected an absolute tarball input');
+  const expectedSdk = verifyMarkdownDependency(process.cwd());
   const files = run('tar', ['-tzf', tarball]).trim().split('\n').map(file => file.replace(/^package\//, '')).filter(file => file && !file.endsWith('/'));
   if (!files.includes('dist/src/index.js') || !files.includes('dist/bin/wechat-pub.js')) throw new Error('Package entrypoints are missing.');
   if (files.some(file => !/^(?:dist\/|templates\/|skills\/|docs\/|README(?:\.md)?$|LICENSE(?:\..*)?$|package\.json$)/.test(file))) throw new Error('Unexpected package payload.');
@@ -19,6 +21,8 @@ try {
   fs.writeFileSync(path.join(install, 'package.json'), '{"private":true}');
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], install);
   const packageRoot = path.join(install, 'node_modules', '@rbbtsn0w', 'wechat-publisher');
+  const installedSdk = verifyMarkdownDependency(packageRoot, { requireLockfile: false });
+  if (installedSdk.version !== expectedSdk.version) throw new Error('Archive SDK differs from the verified source SDK.');
   run(process.execPath, ['-e', 'require(process.argv[1])', packageRoot], install);
   const cli = path.join(packageRoot, 'dist', 'bin', 'wechat-pub.js');
   for (const args of [['--help'], ['--version'], ['init', '--help'], ['update', '--dry-run'], ['update', '--beta', '--dry-run'], ['update', '--dev', '--dry-run']]) run(process.execPath, [cli, ...args], install);
@@ -31,5 +35,7 @@ try {
   run(process.execPath, [cli, 'init', '--draft', 'news', '--output', draft, '--title', 'Package smoke', '--content', '<p>Content</p>', '--cover', 'cover.png'], install);
   const generated = JSON.parse(fs.readFileSync(path.join(draft, 'draft.json'), 'utf8'));
   if (generated.articles?.[0]?.thumb_media_id !== 'local://cover.png') throw new Error('Installed CLI could not create a portable draft.');
+  console.log(run(process.execPath, [path.resolve('scripts/package-functional-smoke.cjs'), packageRoot, path.join(temporary, 'functional')], install).trim());
+  console.log(`Installed SDK verified: ${installedSdk.name}@${installedSdk.version}`);
   console.log(`Package smoke passed: ${tarball} (${files.length} files).`);
 } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
