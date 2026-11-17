@@ -183,3 +183,26 @@ test('processPostWithReport renders code blocks with macCodeBlock decoration and
   expect(result.post.contentHtml).toContain('word-break: normal');
   fs.unlinkSync(filePath);
 });
+
+test('processPostWithReport keeps spaces between highlighted code tokens', async () => {
+  const filePath = makePost(
+    [
+      '```swift',
+      'class CanvasNodeView: UIView {',
+      '    func refreshBorder() {}',
+      '    if UIDevice.current.orientation.isLandscape {}',
+      '}',
+      '```',
+    ].join('\n'),
+    'title: Code Spacing\narticle_type: newspic',
+  );
+  const result = await processPostWithReport(filePath, config);
+  const html = result.post.contentHtml;
+
+  expect(html).toContain('class</span>&nbsp;<span');
+  expect(html).toContain('func</span>&nbsp;<span');
+  expect(html).toContain('if</span>&nbsp;<span');
+  expect(html).not.toMatch(/<\/span> <span/);
+  expect(html).toContain('white-space: pre');
+  fs.unlinkSync(filePath);
+});

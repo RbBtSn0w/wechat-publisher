@@ -16,6 +16,40 @@ export function escapeHtml(input: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Compatibility for older SDK output and pre-rendered drafts: WeChat drops
+ * whitespace-only text nodes between highlighted tokens. Protect boundary
+ * spaces and indentation at block containers. Inline spans can contain split
+ * string literals, so their text must retain its original characters.
+ * Consume quoted attributes and comments whole so their contents stay intact.
+ */
+export function preserveCodeBlockSpaces(html: string): string {
+  let preDepth = 0;
+  const inlineSpans: boolean[] = [];
+  return html.replace(
+    /(<!--[\s\S]*?(?:-->|$)|<(?:[^"'<>]|"[^"]*"|'[^']*')+>)|([^<]+)/g,
+    (match, tag: string | undefined, text: string | undefined) => {
+      if (tag) {
+        if (/^<pre[\s>]/i.test(tag)) preDepth += 1;
+        else if (/^<\/pre\s*>$/i.test(tag)) {
+          preDepth = Math.max(0, preDepth - 1);
+          if (!preDepth) inlineSpans.length = 0;
+        } else if (preDepth && /^<span[\s>]/i.test(tag)) {
+          // Consume whole attributes, including boolean ones; never restart a greedy whitespace match.
+          const attributes = tag.slice(5, -1).matchAll(/([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g);
+          const styleAttribute = [...attributes].find(attribute => attribute[1].toLowerCase() === 'style');
+          const style = styleAttribute?.[2] ?? styleAttribute?.[3] ?? styleAttribute?.[4] ?? '';
+          inlineSpans.push(!/\bdisplay\s*:\s*(?:block|flex)\b/i.test(style));
+        } else if (preDepth && /^<\/span\s*>$/i.test(tag)) inlineSpans.pop();
+        return tag;
+      }
+      if (!preDepth || inlineSpans.includes(true)) return match;
+      return text!.replace(/^[ \t]+|[ \t]+$/gm, spaces =>
+        '&nbsp;'.repeat(spaces.replace(/\t/g, '    ').length));
+    },
+  );
+}
+
 export function neuterLinksToSpans(html: string): string {
   // WeChat article content allows internal WeChat article links (mp.weixin.qq.com),
   // while external links are not clickable and converted to styled spans.

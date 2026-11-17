@@ -6,7 +6,7 @@ import { normalizeJekyllMarkdown, parseMarkdown, extractImagePaths, replaceImage
 import { readPortableImage, resolveContainedFile } from '../lib/media';
 import { renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
 import { LEGACY_THEME_NAME } from '../lib/theme-registry';
-import { decodeHtmlEntities, normalizeLinksAndFootnotes } from '../lib/converter';
+import { decodeHtmlEntities, normalizeLinksAndFootnotes, preserveCodeBlockSpaces } from '../lib/converter';
 import { copyRichTextToClipboard } from '../lib/clipboard';
 import { runPreflightCheck } from '../lib/preflight';
 import {
@@ -182,9 +182,10 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
 
   // 3. Process Links & Footnotes
   const useFootnotes = options.footnotes ?? true;
-  const { html: finalHtml, footnotes } = normalizeLinksAndFootnotes(baseHtml, {
+  const { html: linkedHtml, footnotes } = normalizeLinksAndFootnotes(baseHtml, {
     appendSection: useFootnotes,
   });
+  const finalHtml = preserveCodeBlockSpaces(linkedHtml);
 
   // 4. Output / Clipboard
   if (options.output) {
