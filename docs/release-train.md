@@ -120,8 +120,8 @@ actionlint .github/workflows/release.yml
 
 ## Compatibility boundary
 
-Publisher pins `@rbbtsn0w/wechat-markdown` to an exact stable version, currently
-`2.1.3`, and requires Node.js 22.14.0 or newer. Its build runs the read-only
+Publisher pins `@rbbtsn0w/wechat-markdown` to the exact stable version declared
+in `package.json` and requires Node.js 22.14.0 or newer. Its build runs the read-only
 `check:dependencies` guard before compilation. The manifest, lockfile requirement,
 locked SDK and actually resolved SDK must agree; the publisher's declared Node
 range must be supported by the SDK. Builds never update dependencies.

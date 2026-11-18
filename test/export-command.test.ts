@@ -39,8 +39,8 @@ describe('exportCommand', () => {
     await exportCommand(source, { output, clip: true, strict: true });
 
     const html = fs.readFileSync(output, 'utf8');
-    expect(html).toContain('class</span>&nbsp;<span');
-    expect(html).toContain('func</span>&nbsp;<span');
+    expect(html).toMatch(/class<\/span>(?:&nbsp;|\u00a0)<span/);
+    expect(html).toMatch(/func<\/span>(?:&nbsp;|\u00a0)<span/);
     expect(html).toContain('hello world');
     expect(html).not.toContain('hello&nbsp;world');
     expect(html).toContain('Body text stays readable.');

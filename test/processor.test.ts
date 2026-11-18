@@ -199,9 +199,9 @@ test('processPostWithReport keeps spaces between highlighted code tokens', async
   const result = await processPostWithReport(filePath, config);
   const html = result.post.contentHtml;
 
-  expect(html).toContain('class</span>&nbsp;<span');
-  expect(html).toContain('func</span>&nbsp;<span');
-  expect(html).toContain('if</span>&nbsp;<span');
+  expect(html).toMatch(/class<\/span>(?:&nbsp;|\u00a0)<span/);
+  expect(html).toMatch(/func<\/span>(?:&nbsp;|\u00a0)<span/);
+  expect(html).toMatch(/if<\/span>(?:&nbsp;|\u00a0)<span/);
   expect(html).not.toMatch(/<\/span> <span/);
   expect(html).toContain('white-space: pre');
   fs.unlinkSync(filePath);
