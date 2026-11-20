@@ -68,6 +68,7 @@ export function loadConfig(
     assetsDir: ymlConfig.assetsDir || 'assets',
     author: ymlConfig.author || '',
     style: ymlConfig.style || 'default',
+    footnotes: typeof ymlConfig.footnotes === 'boolean' ? ymlConfig.footnotes : false,
     limits: ymlConfig.limits,
     requestTimeoutMs: ymlConfig.requestTimeoutMs || 15_000,
     maxRetries: ymlConfig.maxRetries ?? 3,

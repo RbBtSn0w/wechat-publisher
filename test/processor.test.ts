@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { expect, test } from 'vitest';
 import { processPostWithReport } from '../src/lib/processor';
+import { MermaidRenderer } from '../src/lib/mermaid-renderer';
 
 function makePost(content: string, metadata: string = 'title: Test'): string {
  const filePath = path.join(os.tmpdir(), `wechat-post-${Date.now()}-${Math.random()}.md`);
@@ -205,4 +206,99 @@ test('processPostWithReport keeps spaces between highlighted code tokens', async
   expect(html).not.toMatch(/<\/span> <span/);
   expect(html).toContain('white-space: pre');
   fs.unlinkSync(filePath);
+});
+
+test('processPostWithReport supports the restrained apple theme without legacy green/magenta accents', async () => {
+  const filePath = makePost('## Section\n\nUse `traitCollection` with **bold** emphasis.\n\n```swift\nlet x = 1\n```\n\n---', 'title: Apple Theme\narticle_type: newspic');
+  const result = await processPostWithReport(filePath, { ...config, style: 'apple' });
+  const html = result.post.contentHtml;
+
+  expect(html).not.toContain('#07c160');
+  expect(html).not.toContain('#e91e63');
+  expect(html).not.toContain('#1e1f22');
+  expect(html).toContain('#282c34');
+  expect(html).toContain('#1d1d1f');
+  expect(html).toContain('#f2f2f7');
+  expect(html).toContain('text-align: left');
+  fs.unlinkSync(filePath);
+});
+
+test('processPostWithReport routes opted-in SDK theme names such as modern-tech', async () => {
+  const filePath = makePost('A **bold** statement.', 'title: Modern Tech\narticle_type: newspic');
+  const result = await processPostWithReport(filePath, { ...config, style: 'modern-tech' });
+
+  expect(result.post.contentHtml).toContain('#0f4c81');
+  expect(result.post.contentHtml).not.toContain('#07c160');
+  fs.unlinkSync(filePath);
+});
+
+test('processPostWithReport appends link footnotes when config.footnotes is enabled', async () => {
+  const filePath = makePost('Read [Apple TN3192](https://developer.apple.com/documentation/technotes/tn3192) and [Local Post](/posts/demo/).', 'title: Footnotes\narticle_type: newspic');
+  const result = await processPostWithReport(filePath, { ...config, siteUrl: 'https://example.com', footnotes: true });
+  const html = result.post.contentHtml;
+
+  expect(html).toContain('[1]</sup>');
+  expect(html).toContain('参考链接');
+  expect(html).toContain('https://developer.apple.com/documentation/technotes/tn3192');
+  expect(html).toContain('https://example.com/posts/demo/');
+  fs.unlinkSync(filePath);
+});
+
+test('processPostWithReport omits default English Mermaid caption and respects explicit caption comment', async () => {
+  const mermaidImg = path.join(os.tmpdir(), `wechat-mermaid-${Date.now()}.png`);
+  fs.writeFileSync(mermaidImg, validPng);
+  const filePath = makePost([
+    '```mermaid',
+    'flowchart LR',
+    'A --> B',
+    '```',
+    '',
+    '```mermaid',
+    '%% caption: 跨进程恢复时序 [v2]',
+    'flowchart LR',
+    'C --> D',
+    '```',
+  ].join('\n'), 'title: Mermaid Captions\narticle_type: newspic');
+
+  const result = await processPostWithReport(filePath, config, undefined, {
+    mermaidRenderer: {
+      getHash: () => 'mermaid-caption-test',
+      renderToImage: async () => mermaidImg,
+    },
+  });
+
+  expect(result.post.contentHtml).not.toContain('Mermaid Diagram');
+  expect(result.post.contentHtml).toContain('跨进程恢复时序 [v2]');
+  expect(result.post.contentHtml).toContain('<img');
+  fs.unlinkSync(filePath);
+  fs.unlinkSync(mermaidImg);
+});
+
+test('processPostWithReport warns when trivial numbers or units are wrapped in inline math delimiters', async () => {
+  const formulaImage = path.join(os.tmpdir(), `wechat-trivial-math-${Date.now()}.png`);
+  fs.writeFileSync(formulaImage, validPng);
+  const filePath = makePost('Display: $4K$ and equation: $E = mc^2$', 'title: Math Warning\narticle_type: newspic');
+  const result = await processPostWithReport(filePath, config, undefined, {
+    formulaRenderer: {
+      getHash: (expr) => expr,
+      renderToImage: async () => formulaImage,
+    },
+  });
+
+  expect(result.diagnostics).toEqual([
+    expect.objectContaining({ code: 'TRIVIAL_INLINE_MATH', severity: 'warning', resource: '$4K$' }),
+  ]);
+  fs.unlinkSync(filePath);
+  fs.unlinkSync(formulaImage);
+});
+
+test('MermaidRenderer injects neutral theme by default and preserves explicit directives', () => {
+  const renderer = new MermaidRenderer();
+  expect(renderer.applyDefaultTheme('flowchart LR\nA --> B')).toMatch(/^%%\{init: \{'theme': 'neutral'\}\}%%\nflowchart LR/);
+
+  const customInit = "%%{init: {'theme': 'forest'}}%%\nflowchart LR\nA --> B";
+  expect(renderer.applyDefaultTheme(customInit)).toBe(customInit);
+
+  const frontmatter = '---\ntitle: Demo\n---\nflowchart LR\nA --> B';
+  expect(renderer.applyDefaultTheme(frontmatter)).toBe(frontmatter);
 });

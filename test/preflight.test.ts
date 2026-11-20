@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateCoverImage, validatePlaceholderText, runPreflightCheck } from '../src/lib/preflight';
+import { validateCoverImage, validatePlaceholderText, findTrivialInlineMath, runPreflightCheck } from '../src/lib/preflight';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -167,4 +167,29 @@ it('does not recursively decode visible entities or treat escaped code tags as p
   expect((await runPreflightCheck({ sourceMarkdown: 'literal', content: '<p>&amp;#91;TODO&amp;#93;</p>' })).passed).toBe(true);
   expect((await runPreflightCheck({ sourceMarkdown: 'literal', content: '<p>&lt;code&gt;&#91;TODO&#93;&lt;/code&gt;</p>' })).passed).toBe(false);
   expect((await runPreflightCheck({ sourceMarkdown: 'literal', content: '<code>&#91;TODO&#93;</code>' })).passed).toBe(true);
+});
+
+describe('findTrivialInlineMath', () => {
+  it('flags plain numbers and resolutions wrapped in inline math delimiters while allowing equations and code', async () => {
+    const source = [
+      'A window takes $1/3$ width on a $4K$ display.',
+      'Real formula: $E = mc^2$ and `inline $4K$`.',
+      '```md',
+      'Ignore $1/3$ in fenced code.',
+      '```',
+    ].join('\n');
+
+    const issues = findTrivialInlineMath(source);
+    expect(issues).toHaveLength(2);
+    expect(issues[0]).toMatchObject({ severity: 'warning', line: 1 });
+    expect(issues[0].message).toContain('$1/3$');
+    expect(issues[1].message).toContain('$4K$');
+
+    const strictResult = await runPreflightCheck({
+      sourceMarkdown: source,
+      content: '<p>rendered</p>',
+      strict: true,
+    });
+    expect(strictResult.passed).toBe(false);
+  });
 });

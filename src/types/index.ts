@@ -48,6 +48,7 @@ export interface AppConfig {
   assetsDir: string;
   author?: string;
   style?: string;
+  footnotes?: boolean;
   limits?: Partial<SyncLimits>;
   requestTimeoutMs?: number;
   maxRetries?: number;
