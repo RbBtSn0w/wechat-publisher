@@ -7,6 +7,8 @@ import sharp from 'sharp';
 import { MermaidRenderer as SdkMermaidRenderer } from '@rbbtsn0w/wechat-markdown';
 import { TEMP_PATHS } from './constants';
 
+const DEFAULT_MERMAID_THEME_DIRECTIVE = "%%{init: {'theme': 'neutral'}}%%";
+
 export class MermaidRenderer extends SdkMermaidRenderer {
   private tempDirectory: string;
 
@@ -18,8 +20,16 @@ export class MermaidRenderer extends SdkMermaidRenderer {
     }
   }
 
+  public applyDefaultTheme(mermaidCode: string): string {
+    const trimmed = mermaidCode.trim();
+    if (/%%\{\s*init(?:ialize)?\s*:/i.test(trimmed) || trimmed.startsWith('---')) {
+      return trimmed;
+    }
+    return `${DEFAULT_MERMAID_THEME_DIRECTIVE}\n${trimmed}`;
+  }
+
   public override getHash(mermaidCode: string): string {
-    return crypto.createHash('md5').update(mermaidCode.trim()).digest('hex');
+    return crypto.createHash('md5').update(this.applyDefaultTheme(mermaidCode)).digest('hex');
   }
 
   public override getTargetPath(hash: string): string {
@@ -40,7 +50,8 @@ export class MermaidRenderer extends SdkMermaidRenderer {
   }
 
   public override async renderToImage(mermaidCode: string): Promise<string> {
-    const hash = this.getHash(mermaidCode);
+    const themedCode = this.applyDefaultTheme(mermaidCode);
+    const hash = this.getHash(themedCode);
     const targetPath = this.getTargetPath(hash);
 
     // Verify non-zero size cached file to prevent truncated or 0-byte cache lockups
@@ -60,7 +71,7 @@ export class MermaidRenderer extends SdkMermaidRenderer {
     const sdkProto = SdkMermaidRenderer.prototype as unknown as { sanitizeMermaid?: (c: string) => string };
     if (typeof sdkProto.sanitizeMermaid === 'function') {
       try {
-        const sdkResult = await super.renderToImage(mermaidCode);
+        const sdkResult = await super.renderToImage(themedCode);
         if (fs.existsSync(sdkResult) && fs.statSync(sdkResult).size > 0) {
           return sdkResult;
         }
@@ -69,7 +80,7 @@ export class MermaidRenderer extends SdkMermaidRenderer {
       }
     }
 
-    const sanitized = this.sanitizeMermaid(mermaidCode.trim());
+    const sanitized = this.sanitizeMermaid(themedCode);
     const data = Buffer.from(sanitized, 'utf8');
     const compressed = zlib.deflateSync(data, { level: 9 });
     const result = Buffer.from(compressed)

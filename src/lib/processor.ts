@@ -3,7 +3,7 @@ import {
   replaceMermaidBlocks, normalizeJekyllMarkdown, findUnsupportedMarkdown,
   extractMathExpressions, replaceMathExpressions,
 } from './parser';
-import { neuterLinksToSpans, preserveCodeBlockSpaces } from './converter';
+import { neuterLinksToSpans, normalizeLinksAndFootnotes, preserveCodeBlockSpaces } from './converter';
 import { AppConfig, BlogPost, ConversionDiagnostic, ConversionStats, ProcessResult } from '../types';
 import { Uploader } from './uploader';
 import { cacheScope, fingerprintFile, ResourceCache } from './cache';
@@ -13,9 +13,9 @@ import { RemoteImageDownloader } from './remote-image';
 import { ArticleValidationError, validateArticle } from './article-validator';
 import { getRepoRoot } from './constants';
 import { validateUploadableImage, readValidatedUploadImage, resolveContainedFile } from './media';
-import { validatePlaceholderText } from './preflight';
+import { isTrivialInlineMathExpression, validatePlaceholderText } from './preflight';
 import { renderMarkdownToWechat } from '@rbbtsn0w/wechat-markdown';
-import { LEGACY_THEME_NAME } from './theme-registry';
+import { resolvePublisherTheme } from './theme-registry';
 import path from 'path';
 import { createHash } from 'crypto';
 import fs from 'fs';
@@ -59,6 +59,12 @@ function resolveLocalAssetPath(repoRoot: string, assetPath: string, assetsDir: s
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Image not found: ${assetPath}`);
     throw error;
   }
+}
+
+function extractMermaidCaption(mermaidCode: string): string {
+  const match = mermaidCode.match(/^[ \t]*%%[ \t]*caption[ \t]*:[ \t]*([^\s\r\n][^\r\n]*)\r?$/im);
+  if (!match) return '';
+  return match[1].trim().replace(/\\/g, '&#92;').replace(/\[/g, '&#91;').replace(/\]/g, '&#93;');
 }
 
 function assertContent(result: ProcessResult, config: AppConfig, requireCover: boolean, content = result.post.contentHtml): void {
@@ -107,8 +113,17 @@ export async function preparePostWithReport(
     const renderer = services.formulaRenderer || new FormulaRenderer();
     const replacements: Record<string, string> = {};
     for (const expression of math) {
+      if (!expression.display && isTrivialInlineMathExpression(expression.expression)) {
+        diagnostics.push({
+          code: 'TRIVIAL_INLINE_MATH',
+          severity: 'warning',
+          message: `Plain number/unit "${expression.source}" wrapped in math delimiters will render as a bitmap image in WeChat; write plain text instead.`,
+          sourcePath: filePath,
+          resource: expression.source,
+        });
+      }
       const localPath = await renderer.renderToImage(expression.expression, expression.display);
-      replacements[expression.key] = `![Formula](<${localPath}>)`;
+      replacements[expression.key] = `![](<${localPath}>)`;
       generated.add(localPath);
       stats.renderedFormulas++;
     }
@@ -121,7 +136,8 @@ export async function preparePostWithReport(
     for (const code of mermaid) {
       try {
         const localPath = await renderer.renderToImage(code);
-        replacements[code] = `![Mermaid Diagram](<${localPath}>)`;
+        const caption = extractMermaidCaption(code);
+        replacements[code] = `![${caption}](<${localPath}>)`;
         generated.add(localPath);
         stats.renderedMermaid++;
       } catch (error: unknown) {
@@ -150,13 +166,17 @@ export async function preparePostWithReport(
   if (placeholders.length) throw new Error(placeholders.map(issue => issue.message).join(' '));
   // Bind resource identities before the SDK encodes destinations or HTML attributes.
   const tokens = Object.fromEntries([...assets.values()].map(asset => [asset.localPath, asset.token!]));
+  const theme = resolvePublisherTheme(config.style);
   const rendered = await renderMarkdownToWechat(replaceImagePaths(markdown, tokens), {
-    theme: LEGACY_THEME_NAME, siteUrl: config.siteUrl || undefined, renderMath: false, renderMermaid: false,
+    theme, siteUrl: config.siteUrl || undefined, renderMath: false, renderMermaid: false,
     footnoteLinks: false, gfmAlerts: false, macCodeBlock: true, tableScroller: false,
   });
   diagnostics.push(...rendered.diagnostics.filter(issue => issue.code !== 'LOCAL_IMAGE_UNRESOLVED')
     .map(issue => ({ ...issue, sourcePath: filePath })));
-  const htmlTemplate = preserveCodeBlockSpaces(neuterLinksToSpans(rendered.html));
+  const linkedHtml = config.footnotes
+    ? normalizeLinksAndFootnotes(rendered.html).html
+    : neuterLinksToSpans(rendered.html);
+  const htmlTemplate = preserveCodeBlockSpaces(linkedHtml);
   const preparedTokens = new Set([...assets.values()].map(asset => asset.token!));
   if (extractImagePaths(htmlTemplate, { markdownInline: false }).some(resource => !preparedTokens.has(resource))) {
     throw new Error('An image reference was not prepared. Use inline Markdown image syntax before publishing.');

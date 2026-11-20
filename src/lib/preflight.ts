@@ -27,6 +27,40 @@ const warningPatterns: { pattern: RegExp; desc: string }[] = [
   { pattern: /\[TBD\]/i, desc: 'TBD placeholder' },
 ];
 
+const TRIVIAL_MATH_EXPRESSION_RE =
+  /^\s*[0-9]+(?:[.,/][0-9]+)?\s*(?:\\?%|K|k|M|G|px|pt|ms|s|MB|GB|TB|x|倍)?\s*$/;
+
+const MATH_SCAN_RE = /(?<!\\)\$\$[\s\S]+?(?<!\\)\$\$|(?<![\\$])\$(?!\$)([^\n$]+?)(?<!\\)\$(?!\$)/g;
+
+export function isTrivialInlineMathExpression(expression: string): boolean {
+  return TRIVIAL_MATH_EXPRESSION_RE.test(expression);
+}
+
+export function findTrivialInlineMath(content: string, options: SourceScanOptions = {}): PreflightIssue[] {
+  const issues: PreflightIssue[] = [];
+  const visible = maskProtectedRegions(content, options);
+  let lineNum = 1;
+  let cursor = 0;
+
+  for (const match of visible.matchAll(MATH_SCAN_RE)) {
+    const expression = match[1];
+    if (expression === undefined || !isTrivialInlineMathExpression(expression)) {
+      continue;
+    }
+    const matchIndex = match.index ?? 0;
+    for (let i = cursor; i < matchIndex; i += 1) {
+      if (visible[i] === '\n') lineNum += 1;
+    }
+    cursor = matchIndex;
+    issues.push({
+      severity: 'warning',
+      line: lineNum,
+      message: `Plain number/unit "${match[0]}" wrapped in math delimiters at line ${lineNum}; write plain text so WeChat does not render a blurry formula image.`,
+    });
+  }
+  return issues;
+}
+
 export function validatePlaceholderText(content: string, options: SourceScanOptions = {}): PreflightIssue[] {
   return scanPlaceholderText(content, options);
 }
@@ -138,12 +172,13 @@ export async function runPreflightCheck(options: {
 }): Promise<PreflightResult> {
   const issues: PreflightIssue[] = [];
 
-  // 1. Text placeholders check
+  // 1. Text placeholders and WeChat math pitfalls check
   if (options.sourceMarkdown !== undefined) {
     // Rendering can remove placeholder syntax from link labels; media must be checked after resolution.
     const sourceRules = new Map<string, number>();
     issues.push(...scanPlaceholderText(options.sourceMarkdown, {}, 'text', { seen: sourceRules }));
     issues.push(...scanPlaceholderText(options.content, { markdownInline: false }, 'all', { decodeEntities: true, exclude: sourceRules }));
+    issues.push(...findTrivialInlineMath(options.sourceMarkdown));
   } else {
     issues.push(...scanPlaceholderText(options.content, { markdownInline: options.markdownInline }, 'all', { decodeEntities: true }));
   }
