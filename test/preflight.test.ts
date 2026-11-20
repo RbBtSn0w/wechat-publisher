@@ -192,4 +192,30 @@ describe('findTrivialInlineMath', () => {
     });
     expect(strictResult.passed).toBe(false);
   });
+
+  it('ignores display math spans including $$...$$ blocks while keeping prose warnings with accurate line numbers', async () => {
+    const displayOnly = '$$\n\\text{A $4K$ display}\n$$';
+    expect(findTrivialInlineMath(displayOnly)).toHaveLength(0);
+    expect(findTrivialInlineMath('$$4K$$')).toHaveLength(0);
+
+    const strictDisplayResult = await runPreflightCheck({
+      sourceMarkdown: displayOnly,
+      content: '<p>rendered</p>',
+      strict: true,
+    });
+    expect(strictDisplayResult.passed).toBe(true);
+
+    const mixedSource = [
+      '$$',
+      '\\text{A $4K$ display}',
+      '$$',
+      '$$4K$$',
+      'A $4K$ display',
+    ].join('\n');
+    const issues = findTrivialInlineMath(mixedSource);
+    expect(issues).toEqual([
+      expect.objectContaining({ severity: 'warning', line: 5 }),
+    ]);
+    expect(issues[0].message).toContain('$4K$');
+  });
 });

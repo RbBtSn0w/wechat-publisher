@@ -5,6 +5,7 @@ import path from 'path';
 import { expect, test } from 'vitest';
 import { processPostWithReport } from '../src/lib/processor';
 import { MermaidRenderer } from '../src/lib/mermaid-renderer';
+import { LEGACY_THEME_NAME, resolvePublisherTheme } from '../src/lib/theme-registry';
 
 function makePost(content: string, metadata: string = 'title: Test'): string {
  const filePath = path.join(os.tmpdir(), `wechat-post-${Date.now()}-${Math.random()}.md`);
@@ -299,6 +300,66 @@ test('MermaidRenderer injects neutral theme by default and preserves explicit di
   const customInit = "%%{init: {'theme': 'forest'}}%%\nflowchart LR\nA --> B";
   expect(renderer.applyDefaultTheme(customInit)).toBe(customInit);
 
+  const customInitialize = "%%{initialize: {'fontFamily': 'monospace'}}%%\nflowchart LR\nA --> B";
+  expect(renderer.applyDefaultTheme(customInitialize)).toBe(customInitialize);
+
   const frontmatter = '---\ntitle: Demo\n---\nflowchart LR\nA --> B';
   expect(renderer.applyDefaultTheme(frontmatter)).toBe(frontmatter);
+});
+
+test('processPostWithReport ignores empty Mermaid captions and preserves captions with trailing backslashes', async () => {
+  const mermaidImg = path.join(os.tmpdir(), `wechat-mermaid-edge-${Date.now()}.png`);
+  fs.writeFileSync(mermaidImg, validPng);
+  const filePath = makePost([
+    '```mermaid',
+    '%% caption:',
+    'flowchart LR',
+    'A --> B',
+    '```',
+    '',
+    '```mermaid',
+    '%% caption:   ',
+    'flowchart LR',
+    'C --> D',
+    '```',
+    '',
+    '```mermaid',
+    '%% caption: Path C:\\temp\\',
+    'flowchart LR',
+    'E --> F',
+    '```',
+  ].join('\n'), 'title: Mermaid Caption Edge Cases\narticle_type: newspic');
+
+  try {
+    const result = await processPostWithReport(filePath, config, undefined, {
+      mermaidRenderer: {
+        getHash: () => 'mermaid-caption-edge-test',
+        renderToImage: async () => mermaidImg,
+      },
+    });
+
+    const html = result.post.contentHtml;
+    expect(html).not.toContain('alt="flowchart LR"');
+    expect(html).not.toContain('>flowchart LR<');
+    expect(html).toContain('<img');
+    expect(html).toContain('Path C:\\temp\\');
+  } finally {
+    fs.unlinkSync(filePath);
+    fs.unlinkSync(mermaidImg);
+  }
+});
+
+test('resolvePublisherTheme rejects inherited Object.prototype keys and falls back to legacy styling', async () => {
+  for (const protoKey of ['constructor', '__proto__', 'toString']) {
+    expect(resolvePublisherTheme(protoKey)).toBe(LEGACY_THEME_NAME);
+  }
+
+  const filePath = makePost('Inherited key **test**.', 'title: Prototype Guard\narticle_type: newspic');
+  try {
+    const result = await processPostWithReport(filePath, { ...config, style: 'constructor' });
+    expect(result.post.contentHtml).toContain('#07c160');
+    expect(result.post.contentHtml).not.toContain('#0f4c81');
+  } finally {
+    fs.unlinkSync(filePath);
+  }
 });

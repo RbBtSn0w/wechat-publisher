@@ -22,7 +22,7 @@ export class MermaidRenderer extends SdkMermaidRenderer {
 
   public applyDefaultTheme(mermaidCode: string): string {
     const trimmed = mermaidCode.trim();
-    if (/%%\{\s*init\s*:/i.test(trimmed) || trimmed.startsWith('---')) {
+    if (/%%\{\s*init(?:ialize)?\s*:/i.test(trimmed) || trimmed.startsWith('---')) {
       return trimmed;
     }
     return `${DEFAULT_MERMAID_THEME_DIRECTIVE}\n${trimmed}`;

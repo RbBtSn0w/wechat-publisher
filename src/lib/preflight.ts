@@ -30,7 +30,7 @@ const warningPatterns: { pattern: RegExp; desc: string }[] = [
 const TRIVIAL_MATH_EXPRESSION_RE =
   /^\s*[0-9]+(?:[.,/][0-9]+)?\s*(?:\\?%|K|k|M|G|px|pt|ms|s|MB|GB|TB|x|倍)?\s*$/;
 
-const INLINE_MATH_RE = /(?<![\\$])\$(?!\$)([^\n$]+?)(?<!\\)\$(?!\$)/g;
+const MATH_SCAN_RE = /(?<!\\)\$\$[\s\S]+?(?<!\\)\$\$|(?<![\\$])\$(?!\$)([^\n$]+?)(?<!\\)\$(?!\$)/g;
 
 export function isTrivialInlineMathExpression(expression: string): boolean {
   return TRIVIAL_MATH_EXPRESSION_RE.test(expression);
@@ -39,19 +39,25 @@ export function isTrivialInlineMathExpression(expression: string): boolean {
 export function findTrivialInlineMath(content: string, options: SourceScanOptions = {}): PreflightIssue[] {
   const issues: PreflightIssue[] = [];
   const visible = maskProtectedRegions(content, options);
-  const lines = visible.split(/\r?\n/);
-  lines.forEach((visibleLine, idx) => {
-    const lineNum = idx + 1;
-    for (const match of visibleLine.matchAll(INLINE_MATH_RE)) {
-      if (isTrivialInlineMathExpression(match[1])) {
-        issues.push({
-          severity: 'warning',
-          line: lineNum,
-          message: `Plain number/unit "${match[0]}" wrapped in math delimiters at line ${lineNum}; write plain text so WeChat does not render a blurry formula image.`,
-        });
-      }
+  let lineNum = 1;
+  let cursor = 0;
+
+  for (const match of visible.matchAll(MATH_SCAN_RE)) {
+    const expression = match[1];
+    if (expression === undefined || !isTrivialInlineMathExpression(expression)) {
+      continue;
     }
-  });
+    const matchIndex = match.index ?? 0;
+    for (let i = cursor; i < matchIndex; i += 1) {
+      if (visible[i] === '\n') lineNum += 1;
+    }
+    cursor = matchIndex;
+    issues.push({
+      severity: 'warning',
+      line: lineNum,
+      message: `Plain number/unit "${match[0]}" wrapped in math delimiters at line ${lineNum}; write plain text so WeChat does not render a blurry formula image.`,
+    });
+  }
   return issues;
 }
 

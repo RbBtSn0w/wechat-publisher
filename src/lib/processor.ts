@@ -62,9 +62,9 @@ function resolveLocalAssetPath(repoRoot: string, assetPath: string, assetsDir: s
 }
 
 function extractMermaidCaption(mermaidCode: string): string {
-  const match = mermaidCode.match(/^\s*%%\s*caption\s*:\s*(.+)$/im);
+  const match = mermaidCode.match(/^[ \t]*%%[ \t]*caption[ \t]*:[ \t]*([^\s\r\n][^\r\n]*)\r?$/im);
   if (!match) return '';
-  return match[1].trim().replace(/\[/g, '&#91;').replace(/\]/g, '&#93;');
+  return match[1].trim().replace(/\\/g, '&#92;').replace(/\[/g, '&#91;').replace(/\]/g, '&#93;');
 }
 
 function assertContent(result: ProcessResult, config: AppConfig, requireCover: boolean, content = result.post.contentHtml): void {

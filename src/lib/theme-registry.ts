@@ -24,5 +24,5 @@ const NAMED_THEMES: Record<string, string> = {
 export function resolvePublisherTheme(style?: string): string {
   if (!style) return LEGACY_THEME_NAME;
   const normalized = style.trim().toLowerCase();
-  return NAMED_THEMES[normalized] || LEGACY_THEME_NAME;
+  return Object.hasOwn(NAMED_THEMES, normalized) ? NAMED_THEMES[normalized] : LEGACY_THEME_NAME;
 }
