@@ -55,7 +55,7 @@ jobs:
             }
             const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id });
             if (run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
-                run.repository?.id !== run.head_repository?.id ||
+                !Number.isSafeInteger(run.repository?.id) || run.repository.id !== run.head_repository?.id ||
                 !/^[0-9a-f]{40}$/.test(run.head_sha)) {
               throw new Error('Expected a same-repository PR CI run');
             }
@@ -74,25 +74,32 @@ jobs:
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
               owner, repo, run_id, filter: 'all',
             });
-            const candidates = jobs.filter(job =>
+            const successful = jobs.filter(job =>
               job.run_id === run_id && job.name === 'PR preview package' &&
-              Number.isSafeInteger(job.run_attempt) && job.run_attempt > 0 && job.run_attempt <= run.run_attempt,
-            ).sort((a, b) => b.run_attempt - a.run_attempt);
-            const [job, duplicate] = candidates;
-            if (job?.conclusion !== 'success' || duplicate?.run_attempt === job.run_attempt ||
-                !job.steps.some(step => step.name === 'Upload verified preview' && step.conclusion === 'success')) {
-              throw new Error('The latest packaging job did not successfully upload a preview');
-            }
-            const name = `pr-preview-${pr.number}-${run.head_sha}-attempt-${job.run_attempt}`;
+              Number.isSafeInteger(job.run_attempt) && job.run_attempt > 0 && job.run_attempt <= run.run_attempt &&
+              job.conclusion === 'success' &&
+              job.steps?.some(step => step.name === 'Upload verified preview' && step.conclusion === 'success'),
+            );
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-              owner, repo, run_id, name,
+              owner, repo, run_id,
             });
-            const matches = artifacts.filter(artifact => artifact.name === name && !artifact.expired);
-            if (matches.length !== 1) throw new Error('Expected one unexpired preview artifact');
-            core.setOutput('pr', pr.number);
-            core.setOutput('head', run.head_sha);
-            core.setOutput('attempt', job.run_attempt);
-            core.setOutput('artifact', matches[0].id);
+            // GitHub can roll forward an upstream job record on a downstream-only rerun.
+            // The new job record has no upload of its own, so select the actual artifact.
+            const attempts = [...new Set(successful.map(job => job.run_attempt))].sort((a, b) => b - a);
+            for (const attempt of attempts) {
+              const name = `pr-preview-${pr.number}-${run.head_sha}-attempt-${attempt}`;
+              const matches = artifacts.filter(artifact => artifact.name === name && !artifact.expired);
+              if (matches.length === 0) continue;
+              if (matches.length !== 1 || successful.filter(job => job.run_attempt === attempt).length !== 1) {
+                throw new Error('Ambiguous successful preview archive');
+              }
+              core.setOutput('pr', pr.number);
+              core.setOutput('head', run.head_sha);
+              core.setOutput('attempt', attempt);
+              core.setOutput('artifact', matches[0].id);
+              return;
+            }
+            throw new Error('No unexpired archive from a successful preview upload');
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         if: steps.source.outputs.artifact != ''
         with:

@@ -140,6 +140,8 @@ test('resolve the successful packaging attempt on comment reruns and reject unav
       run_id: 7, name: 'PR preview package', run_attempt: 1, conclusion: 'success',
       steps: [{ name: 'Upload verified preview', conclusion: 'success' }],
     }];
+    // The rerun surfaces a carried-forward packaging record without a matching upload.
+    jobs.push({ ...jobs[0], run_attempt: 2 });
     const name = 'pr-preview-89-' + head + '-attempt-1';
     let artifacts = [{ name, id: 123, expired: false }];
     const outputs = {};
@@ -148,10 +150,7 @@ test('resolve the successful packaging attempt on comment reruns and reject unav
         actions: {
           getWorkflowRun: async () => ({ data: run }),
           listJobsForWorkflowRun: async () => jobs,
-          listWorkflowRunArtifacts: async args => {
-            assert.equal(args.name, name);
-            return artifacts;
-          },
+          listWorkflowRunArtifacts: async () => artifacts,
         },
         pulls: { get: async () => ({ data: pr }) },
       },
@@ -161,6 +160,9 @@ test('resolve the successful packaging attempt on comment reruns and reject unav
     }, { SOURCE_RUN_ID: '7' });
     await exec();
     assert.deepEqual(outputs, { pr: 89, head, attempt: 1, artifact: 123 });
+    artifacts.push({ name: name.replace(/1$/, '2'), id: 124, expired: false });
+    await exec();
+    assert.deepEqual(outputs, { pr: 89, head, attempt: 2, artifact: 124 });
     for (const value of [[], [{ name, id: 123, expired: true }]]) {
       artifacts = value;
       await assert.rejects(exec(), /unexpired/);
