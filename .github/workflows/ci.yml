@@ -74,3 +74,169 @@ jobs:
           node dist/bin/wechat-pub.js update --beta --dry-run
           node dist/bin/wechat-pub.js update --dev --dry-run
           node dist/bin/wechat-pub.js update --tag canary --dry-run
+
+  pr-preview:
+    name: PR preview package
+    needs: ci
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.15.0'
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Pack and verify the exact PR head
+        run: |
+          test "$(git rev-parse HEAD)" = "$PR_HEAD"
+          preview="$RUNNER_TEMP/pr-preview"
+          mkdir "$preview"
+          node .github/pr-preview/preview.mjs prepare "$preview"
+          npm pkg set "version=$(cat "$preview/version.txt")"
+          npm run build
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/npm-pack.json"
+          filename="$(node -e 'const [item] = require(process.argv[1]); process.stdout.write(item.filename)' "$RUNNER_TEMP/npm-pack.json")"
+          mv "$RUNNER_TEMP/$filename" "$preview/pr-preview.tgz"
+          node .github/pr-preview/preview.mjs seal "$preview"
+          PREVIEW_VERSION="$(cat "$preview/version.txt")" npm run test:package -- "$preview/pr-preview.tgz"
+          node .github/pr-preview/preview.mjs verify "$preview"
+          ARTIFACT_ID=99999999999999 node .github/pr-preview/preview.mjs card "$preview" > "$preview/card.md"
+      - name: Upload verified preview
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr-preview-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr-preview/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Show verification commands
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: sed "s/99999999999999/$ARTIFACT_ID/g" "$RUNNER_TEMP/pr-preview/card.md" >> "$GITHUB_STEP_SUMMARY"
+
+  pr-preview-comment:
+    name: Update the PR preview card
+    needs: pr-preview
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: pr-preview-card-${{ github.event.pull_request.number }}
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Locate the successful upload
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run_id = Number(process.env.SOURCE_RUN_ID);
+            if (!/^[1-9][0-9]*$/.test(process.env.SOURCE_RUN_ID) || !Number.isSafeInteger(run_id)) {
+              throw new Error('Invalid source run ID');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id });
+            if (run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
+                run.repository?.id !== run.head_repository?.id ||
+                !/^[0-9a-f]{40}$/.test(run.head_sha)) {
+              throw new Error('Expected a same-repository PR CI run');
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              owner, repo, pull_number: context.payload.pull_request.number,
+            });
+            if (run.head_sha !== context.payload.pull_request.head.sha) throw new Error('Source run head differs from event');
+            if (pr.state !== 'open' || pr.base.ref !== 'main' || pr.head.sha !== run.head_sha ||
+                pr.head.repo?.id !== run.repository.id || pr.base.repo?.id !== run.repository.id) {
+              core.notice('This run no longer represents the live PR head.');
+              return;
+            }
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner, repo, run_id, filter: 'all',
+            });
+            const candidates = jobs.filter(job =>
+              job.run_id === run_id && job.name === 'PR preview package' &&
+              Number.isSafeInteger(job.run_attempt) && job.run_attempt > 0 && job.run_attempt <= run.run_attempt,
+            ).sort((a, b) => b.run_attempt - a.run_attempt);
+            const [job, duplicate] = candidates;
+            if (job?.conclusion !== 'success' || duplicate?.run_attempt === job.run_attempt ||
+                !job.steps.some(step => step.name === 'Upload verified preview' && step.conclusion === 'success')) {
+              throw new Error('The latest packaging job did not successfully upload a preview');
+            }
+            const name = `pr-preview-${pr.number}-${run.head_sha}-attempt-${job.run_attempt}`;
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner, repo, run_id, name,
+            });
+            const matches = artifacts.filter(artifact => artifact.name === name && !artifact.expired);
+            if (matches.length !== 1) throw new Error('Expected one unexpired preview artifact');
+            core.setOutput('pr', pr.number);
+            core.setOutput('head', run.head_sha);
+            core.setOutput('attempt', job.run_attempt);
+            core.setOutput('artifact', matches[0].id);
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: steps.source.outputs.artifact != ''
+        with:
+          artifact-ids: ${{ steps.source.outputs.artifact }}
+          run-id: ${{ github.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/comment-preview
+          merge-multiple: true
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        if: steps.source.outputs.artifact != ''
+        env:
+          PR_NUMBER: ${{ steps.source.outputs.pr }}
+          PR_HEAD: ${{ steps.source.outputs.head }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          PACKAGING_ATTEMPT: ${{ steps.source.outputs.attempt }}
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const { createHash } = require('node:crypto');
+            const { owner, repo } = context.repo;
+            const { PR_NUMBER, PR_HEAD, ARTIFACT_ID, PACKAGING_ATTEMPT, SOURCE_RUN_ID } = process.env;
+            const issue_number = Number(PR_NUMBER);
+            const marker = '<!-- pr-installable-preview -->';
+            const publishedMarker = '<!-- verified-registry-preview:' + PR_HEAD + ' -->';
+            const directory = path.join(process.env.RUNNER_TEMP, 'comment-preview');
+            const receipt = JSON.parse(fs.readFileSync(path.join(directory, 'receipt.json'), 'utf8'));
+            if (receipt.pr !== PR_NUMBER || receipt.head !== PR_HEAD ||
+                receipt.runId !== SOURCE_RUN_ID || receipt.attempt !== PACKAGING_ATTEMPT ||
+                receipt.name !== '@rbbtsn0w/wechat-publisher' ||
+                !/^[0-9]+\.[0-9]+\.[0-9]+-dev\.pr[1-9][0-9]*\.[a-z0-9]+$/.test(receipt.version)) {
+              throw new Error('Downloaded receipt does not match the verified PR package');
+            }
+            const bytes = fs.readFileSync(path.join(directory, 'pr-preview.tgz'));
+            if (createHash('sha256').update(bytes).digest('hex') !== receipt.sha256) {
+              throw new Error('Downloaded PR package checksum does not match');
+            }
+            const panel = fs.readFileSync(path.join(directory, 'card.md'), 'utf8');
+            const body = marker + '\n' + panel.replaceAll('99999999999999', ARTIFACT_ID);
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker + '\n'));
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
+            if (pr.state !== 'open' || pr.base.ref !== 'main' || pr.head.sha !== PR_HEAD ||
+                pr.head.repo?.id !== pr.base.repo?.id) {
+              core.notice('The PR head changed before the card could be written.');
+              return;
+            }
+            if (existing?.body.includes(publishedMarker)) return;
+            if (existing?.body === body) return;
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
