@@ -1,0 +1,189 @@
+name: Publish verified npm PR preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful current PR CI run ID
+        required: true
+        type: string
+      npmjs:
+        description: Publish to npmjs next
+        type: boolean
+        default: false
+      github_packages:
+        description: Publish to GitHub Packages next
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish verified preview
+    if: >-
+      github.ref == 'refs/heads/main' && vars.PR_PREVIEW_PUBLISH_ENABLED == 'true' &&
+      (inputs.npmjs || inputs.github_packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: npm-pr-preview-publisher
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      id-token: write
+      packages: write
+    outputs:
+      pr: ${{ steps.source.outputs.pr }}
+      head: ${{ steps.source.outputs.head }}
+      attempt: ${{ steps.source.outputs.attempt }}
+      artifact: ${{ steps.source.outputs.artifact }}
+      panel: ${{ steps.registry.outputs.panel }}
+    steps:
+      - name: Locate the successful upload
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run_id = Number(process.env.SOURCE_RUN_ID);
+            if (!/^[1-9][0-9]*$/.test(process.env.SOURCE_RUN_ID) || !Number.isSafeInteger(run_id)) {
+              throw new Error('Invalid source run ID');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id });
+            if (run.path?.split('@', 1)[0] !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
+                !Number.isSafeInteger(run.repository?.id) || run.repository.id !== run.head_repository?.id ||
+                !/^[0-9a-f]{40}$/.test(run.head_sha)) {
+              throw new Error('Expected a same-repository PR CI run');
+            }
+            if (run.conclusion !== 'success' || run.pull_requests.length !== 1 ||
+                run.pull_requests[0].head.sha !== run.head_sha) {
+              throw new Error('Expected successful CI for one PR head');
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              owner, repo, pull_number: run.pull_requests[0].number,
+            });
+            if (pr.state !== 'open' || pr.base.ref !== 'main' || pr.head.sha !== run.head_sha ||
+                pr.head.repo?.id !== run.repository.id || pr.base.repo?.id !== run.repository.id) {
+              core.notice('This run no longer represents the live PR head.');
+              return;
+            }
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner, repo, run_id, filter: 'all',
+            });
+            const successful = jobs.filter(job =>
+              job.run_id === run_id && job.name === 'PR preview package' &&
+              Number.isSafeInteger(job.run_attempt) && job.run_attempt > 0 && job.run_attempt <= run.run_attempt &&
+              job.conclusion === 'success' &&
+              job.steps?.some(step => step.name === 'Upload verified preview' && step.conclusion === 'success'),
+            );
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner, repo, run_id,
+            });
+            // GitHub can roll forward an upstream job record on a downstream-only rerun.
+            // The new job record has no upload of its own, so select the actual artifact.
+            const attempts = [...new Set(successful.map(job => job.run_attempt))].sort((a, b) => b - a);
+            for (const attempt of attempts) {
+              const name = `pr-preview-${pr.number}-${run.head_sha}-attempt-${attempt}`;
+              const matches = artifacts.filter(artifact => artifact.name === name && !artifact.expired);
+              if (matches.length === 0) continue;
+              if (matches.length !== 1 || successful.filter(job => job.run_attempt === attempt).length !== 1) {
+                throw new Error('Ambiguous successful preview archive');
+              }
+              core.setOutput('pr', pr.number);
+              core.setOutput('head', run.head_sha);
+              core.setOutput('attempt', attempt);
+              core.setOutput('artifact', matches[0].id);
+              return;
+            }
+            throw new Error('No unexpired archive from a successful preview upload');
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: steps.source.outputs.artifact != ''
+        with:
+          artifact-ids: ${{ steps.source.outputs.artifact }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/publish-preview
+          merge-multiple: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: steps.source.outputs.artifact != ''
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/pr-preview
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: steps.source.outputs.artifact != ''
+        with:
+          node-version: '24.15.0'
+          package-manager-cache: false
+      - name: Use the verified npm CLI
+        if: steps.source.outputs.artifact != ''
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Verify and observe each authorized registry
+        id: registry
+        if: steps.source.outputs.artifact != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.source.outputs.pr }}
+          PR_HEAD: ${{ steps.source.outputs.head }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          PACKAGING_ATTEMPT: ${{ steps.source.outputs.attempt }}
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact }}
+          PUBLISH_NPMJS: ${{ inputs.npmjs }}
+          PUBLISH_MIRROR: ${{ inputs.github_packages }}
+        run: node .github/pr-preview/publish.mjs "$RUNNER_TEMP/publish-preview"
+
+  announce:
+    name: Update the published PR preview card
+    needs: publish
+    if: needs.publish.outputs.panel != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: pr-preview-card-${{ needs.publish.outputs.pr }}
+      queue: max
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        if: needs.publish.outputs.panel != ''
+        env:
+          PR_NUMBER: ${{ needs.publish.outputs.pr }}
+          PR_HEAD: ${{ needs.publish.outputs.head }}
+          PANEL: ${{ needs.publish.outputs.panel }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { PR_NUMBER, PR_HEAD } = process.env;
+            const issue_number = Number(PR_NUMBER);
+            const marker = '<!-- pr-installable-preview -->';
+            const publishedMarker = '<!-- verified-registry-preview:' + PR_HEAD + ' -->';
+            const panel = process.env.PANEL;
+            if (!panel) throw new Error('Missing registry evidence');
+            const archiveMarker = '\n<!-- pr-preview-artifact -->';
+            let body = marker + '\n' + publishedMarker + '\n' + panel;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker + '\n'));
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
+            if (pr.state !== 'open' || pr.base.ref !== 'main' || pr.head.sha !== PR_HEAD ||
+                pr.head.repo?.id !== pr.base.repo?.id) {
+              core.notice('The PR head changed before the card could be written.');
+              return;
+            }
+            if (existing?.body.includes('/commit/' + PR_HEAD + ')')) {
+              const fresh = body.indexOf(archiveMarker);
+              const current = existing.body.indexOf(archiveMarker);
+              if (fresh >= 0 && current >= 0) body = body.slice(0, fresh) + existing.body.slice(current);
+            }
+            if (existing?.body === body) return;
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });

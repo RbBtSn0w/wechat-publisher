@@ -1,7 +1,9 @@
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { verifyMarkdownDependency } from './markdown-dependency.mjs';
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-package-smoke-'));
@@ -31,11 +33,40 @@ try {
   }
   const draft = path.join(temporary, 'draft');
   fs.mkdirSync(draft);
-  fs.writeFileSync(path.join(draft, 'cover.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDl8AAAAASUVORK5CYII=', 'base64'));
+  fs.writeFileSync(path.join(draft, 'cover.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAC8AAAAUCAIAAACS+POVAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAOklEQVRIie2VQQ0AQAzCZgRP1YP6c3HbowkCCIEyKXc06w6iG8ym9iZuCnnTfQrHZ8Bsam/ipvjGmwdD81Bib0fnTQAAAABJRU5ErkJggg==', 'base64'));
   run(process.execPath, [cli, 'init', '--draft', 'news', '--output', draft, '--title', 'Package smoke', '--content', '<p>Content</p>', '--cover', 'cover.png'], install);
   const generated = JSON.parse(fs.readFileSync(path.join(draft, 'draft.json'), 'utf8'));
   if (generated.articles?.[0]?.thumb_media_id !== 'local://cover.png') throw new Error('Installed CLI could not create a portable draft.');
-  console.log(run(process.execPath, [path.resolve('scripts/package-functional-smoke.cjs'), packageRoot, path.join(temporary, 'functional')], install).trim());
+  if (process.env.PREVIEW_VERSION) {
+    const entry = path.join(install, 'node_modules', '.bin', 'wechat-pub');
+    assert.equal(run(entry, ['--version'], install).trim(), process.env.PREVIEW_VERSION);
+    assert.match(run(entry, ['--help'], install), /publish-dir/);
+
+    const offline = path.join(install, 'offline.cjs');
+    fs.writeFileSync(offline, `
+const denied = () => { throw new Error('Network access is disabled in preview dry-run'); };
+for (const protocol of ['node:http', 'node:https']) {
+  const transport = require(protocol);
+  transport.request = transport.get = denied;
+}
+const net = require('node:net');
+net.Socket.prototype.connect = denied;
+globalThis.fetch = denied;
+`);
+    const output = execFileSync(entry, ['publish-dir', draft, '--dry-run'], {
+      cwd: install, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'],
+      env: {
+        PATH: process.env.PATH,
+        HOME: install,
+        TMPDIR: temporary,
+        NODE_OPTIONS: '--require=' + JSON.stringify(offline),
+      },
+    });
+    assert.match(output, /--- Dry Run ---/);
+    assert.match(output, /^Resolved placeholders: 1$/m);
+    console.log('Exact installed CLI and isolated local dry-run passed.');
+  }
+  console.log(run(process.execPath, [fileURLToPath(new URL('./package-functional-smoke.cjs', import.meta.url)), packageRoot, path.join(temporary, 'functional')], install).trim());
   console.log(`Installed SDK verified: ${installedSdk.name}@${installedSdk.version}`);
   console.log(`Package smoke passed: ${tarball} (${files.length} files).`);
 } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
