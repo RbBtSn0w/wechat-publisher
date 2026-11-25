@@ -189,6 +189,11 @@ test('resolve the successful packaging attempt on comment reruns and reject unav
   assert.match(commentJob.if, /head\.repo\.full_name == github\.repository/);
   assert.match(workflow.jobs['pr-preview'].if, /pull_request/);
   assert.equal(workflow.jobs['pr-preview'].permissions.contents, 'read');
+  const [source, tooling] = workflow.jobs['pr-preview'].steps;
+  assert.equal(source.with.ref, '${{ github.event.pull_request.head.sha }}');
+  assert.equal(tooling.with.ref, '${{ github.workflow_sha }}');
+  assert.equal(source.with['persist-credentials'], false);
+  assert.equal(tooling.with['persist-credentials'], false);
 });
 
 test('comment writer is idempotent, preserves published cards and rereads head', async t => {

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { verifyMarkdownDependency } from './markdown-dependency.mjs';
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-package-smoke-'));
@@ -65,7 +66,7 @@ globalThis.fetch = denied;
     assert.match(output, /^Resolved placeholders: 1$/m);
     console.log('Exact installed CLI and isolated local dry-run passed.');
   }
-  console.log(run(process.execPath, [path.resolve('scripts/package-functional-smoke.cjs'), packageRoot, path.join(temporary, 'functional')], install).trim());
+  console.log(run(process.execPath, [fileURLToPath(new URL('./package-functional-smoke.cjs', import.meta.url)), packageRoot, path.join(temporary, 'functional')], install).trim());
   console.log(`Installed SDK verified: ${installedSdk.name}@${installedSdk.version}`);
   console.log(`Package smoke passed: ${tarball} (${files.length} files).`);
 } finally { fs.rmSync(temporary, { recursive: true, force: true }); }

@@ -83,6 +83,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    defaults:
+      run:
+        working-directory: preview-source
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_HEAD: ${{ github.event.pull_request.head.sha }}
@@ -90,6 +93,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          path: preview-source
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: preview-tools
+          sparse-checkout: |
+            .github/pr-preview
+            scripts
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
@@ -101,16 +113,19 @@ jobs:
           test "$(git rev-parse HEAD)" = "$PR_HEAD"
           preview="$RUNNER_TEMP/pr-preview"
           mkdir "$preview"
-          node .github/pr-preview/preview.mjs prepare "$preview"
+          tools="$GITHUB_WORKSPACE/preview-tools"
+          ln -s "$PWD/node_modules" "$tools/node_modules"
+          helper="$tools/.github/pr-preview/preview.mjs"
+          node "$helper" prepare "$preview"
           npm pkg set "version=$(cat "$preview/version.txt")"
           npm run build
           npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/npm-pack.json"
           filename="$(node -e 'const [item] = require(process.argv[1]); process.stdout.write(item.filename)' "$RUNNER_TEMP/npm-pack.json")"
           mv "$RUNNER_TEMP/$filename" "$preview/pr-preview.tgz"
-          node .github/pr-preview/preview.mjs seal "$preview"
-          PREVIEW_VERSION="$(cat "$preview/version.txt")" npm run test:package -- "$preview/pr-preview.tgz"
-          node .github/pr-preview/preview.mjs verify "$preview"
-          ARTIFACT_ID=99999999999999 node .github/pr-preview/preview.mjs card "$preview" > "$preview/card.md"
+          node "$helper" seal "$preview"
+          PREVIEW_VERSION="$(cat "$preview/version.txt")" node "$tools/scripts/package-smoke.mjs" "$preview/pr-preview.tgz"
+          node "$helper" verify "$preview"
+          ARTIFACT_ID=99999999999999 node "$helper" card "$preview" > "$preview/card.md"
       - name: Upload verified preview
         id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
