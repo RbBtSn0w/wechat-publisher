@@ -7,21 +7,36 @@ import { setTimeout } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { archive, card, guard, mirrorRegistry, npmRegistry, readLatest, verify } from './preview.mjs';
 
+function scalar(value) {
+  if (Array.isArray(value) && value.length === 1) [value] = value;
+  return typeof value === 'string' ? value : undefined;
+}
+
+function transient(error) {
+  return /^E(?:408|429|5[0-9]{2}|AI_AGAIN|CONNRESET|CONNREFUSED|TIMEDOUT|SOCKETTIMEDOUT|NETUNREACH)$/.test(error.code ?? '');
+}
+
 export async function observe({ integrity, version, lookup, write, next, wait }) {
   let observed = await lookup();
   if (observed === null) {
+    if (!write) return { available: false, next: false };
     const status = await write();
     for (const delay of [0, 2, 4, 8, 12]) {
       await wait(delay);
-      observed = await lookup();
-      if (observed !== null) break;
+      try {
+        observed = await lookup();
+        if (observed !== null) break;
+      } catch (error) {
+        if (!transient(error)) throw error;
+        console.warn('::warning::Transient registry read-back error: ' + error.code);
+      }
     }
     assert(observed !== null, 'No registry read-back after one publish attempt (exit ' + status + ')');
   }
   assert.equal(observed, integrity, 'Registry integrity differs from the verified archive');
   let current = false;
   try {
-    current = await next() === version;
+    current = scalar(await next()) === version;
   } catch (error) {
     console.warn('::warning::Could not confirm the moving next tag: ' + error.message);
   }
@@ -38,7 +53,7 @@ function currentHead(receipt) {
     pr.base.repo?.full_name?.toLowerCase() === GITHUB_REPOSITORY.toLowerCase();
 }
 
-async function registryPreview(dir, receipt, registry) {
+async function registryPreview(dir, receipt, registry, canWrite) {
   const config = mkdtempSync(join(tmpdir(), 'npm-pr-preview-'));
   try {
     const userconfig = join(config, 'user.npmrc');
@@ -57,7 +72,10 @@ async function registryPreview(dir, receipt, registry) {
       const output = result.stdout.trim();
       const value = output ? JSON.parse(output) : undefined;
       if (allowMissing && result.status !== 0 && value?.error?.code === 'E404') return null;
-      assert.equal(result.status, 0, 'npm view failed (' + (value?.error?.code ?? result.status) + ')');
+      if (result.status !== 0) {
+        const code = value?.error?.code ?? result.status;
+        throw Object.assign(new Error('npm view failed (' + code + ')'), { code });
+      }
       return value;
     };
     return await observe({
@@ -65,18 +83,18 @@ async function registryPreview(dir, receipt, registry) {
       lookup() {
         const value = view([spec, 'dist.integrity'], true);
         if (value === null) return null;
-        const integrity = Array.isArray(value) && value.length === 1 ? value[0] : value;
+        const integrity = scalar(value);
         assert(typeof integrity === 'string' && /^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity),
           'Missing or ambiguous registry integrity');
         return integrity;
       },
-      async write() {
+      write: canWrite ? async () => {
         guard(receipt.version, receipt.baseline, await readLatest());
         assert(currentHead(receipt), 'PR head changed before registry write');
         const result = run(['publish', './' + archive, '--ignore-scripts', '--access', 'public', '--tag', 'next'], true);
         if (result.error) console.warn('::warning::npm publish outcome is uncertain: ' + result.error.message);
         return result.status;
-      },
+      } : undefined,
       next: () => view([receipt.name, 'dist-tags.next']),
       wait: seconds => setTimeout(seconds * 1000),
     });
@@ -95,14 +113,14 @@ async function main(dir) {
     [env.PUBLISH_NPMJS, 'npm', npmRegistry],
     [env.PUBLISH_MIRROR, 'mirror', mirrorRegistry],
   ]) {
-    if (enabled !== 'true') continue;
     try {
-      results[key] = await registryPreview(dir, receipt, registry);
+      // Selected registries can write; every observation is independently read back.
+      results[key] = await registryPreview(dir, receipt, registry, enabled === 'true');
     } catch (error) {
       console.warn('::warning::' + registry + ' did not confirm the preview: ' + error.message);
     }
   }
-  assert(results.npm || results.mirror, 'No authorized registry confirmed the exact archive');
+  assert(results.npm?.available || results.mirror?.available, 'No authorized registry confirmed the exact archive');
   const panel = card(receipt, env.ARTIFACT_ID, env.GITHUB_REPOSITORY, results);
   appendFileSync(env.GITHUB_STEP_SUMMARY, panel + '\n');
   appendFileSync(env.GITHUB_OUTPUT, 'panel<<PR_PREVIEW_CARD\n' + panel + '\nPR_PREVIEW_CARD\n');

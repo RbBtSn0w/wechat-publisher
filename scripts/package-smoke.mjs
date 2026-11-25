@@ -61,7 +61,8 @@ globalThis.fetch = denied;
         NODE_OPTIONS: '--require=' + JSON.stringify(offline),
       },
     });
-    assert.match(output, /--- Dry Run ---[\s\S]+Resolved placeholders: 1/);
+    assert.match(output, /--- Dry Run ---/);
+    assert.match(output, /^Resolved placeholders: 1$/m);
     console.log('Exact installed CLI and isolated local dry-run passed.');
   }
   console.log(run(process.execPath, [path.resolve('scripts/package-functional-smoke.cjs'), packageRoot, path.join(temporary, 'functional')], install).trim());

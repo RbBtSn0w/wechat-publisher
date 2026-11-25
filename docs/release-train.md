@@ -14,10 +14,12 @@ head. Download the immutable artifact from the Actions summary or the same-repos
 PR Conversation card, compare its SHA-256, and follow the exact-version commands.
 Fork reviewers use the Actions summary. The archive is retained for 14 days.
 
-The preview artifact works independently of stable releases and registry access.
-An authorized maintainer can restore the optional registry preview paths by
-configuring the preview workflow's npm Trusted Publisher and GitHub Packages
-write access for the selected targets, and enabling `PR_PREVIEW_PUBLISH_ENABLED`.
+The archive is distributed independently of stable releases and preview registries.
+A fresh install still resolves runtime dependencies through its configured registry
+or cache. An authorized maintainer can enable the optional preview paths using
+`PR_PREVIEW_PUBLISH_ENABLED` and the selected registries' permissions. On npmjs,
+configure a Trusted Publisher for `pr-preview-publish.yml` with **Allow npm publish**.
+On GitHub Packages, authorize that workflow's package write access.
 From `main`, dispatch `pr-preview-publish.yml` with the successful current CI run ID
 and explicitly select each authorized registry. The workflow verifies the uploaded
 archive and rechecks the current head and stable npm baseline before each write.

@@ -54,7 +54,7 @@ jobs:
               throw new Error('Invalid source run ID');
             }
             const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id });
-            if (run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
+            if (run.path?.split('@', 1)[0] !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
                 !Number.isSafeInteger(run.repository?.id) || run.repository.id !== run.head_repository?.id ||
                 !/^[0-9a-f]{40}$/.test(run.head_sha)) {
               throw new Error('Expected a same-repository PR CI run');
@@ -147,6 +147,7 @@ jobs:
     timeout-minutes: 5
     concurrency:
       group: pr-preview-card-${{ needs.publish.outputs.pr }}
+      queue: max
     permissions:
       pull-requests: write
     steps:
@@ -165,7 +166,8 @@ jobs:
             const publishedMarker = '<!-- verified-registry-preview:' + PR_HEAD + ' -->';
             const panel = process.env.PANEL;
             if (!panel) throw new Error('Missing registry evidence');
-            const body = marker + '\n' + publishedMarker + '\n' + panel;
+            const archiveMarker = '\n<!-- pr-preview-artifact -->';
+            let body = marker + '\n' + publishedMarker + '\n' + panel;
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number, per_page: 100,
             });
@@ -176,6 +178,11 @@ jobs:
                 pr.head.repo?.id !== pr.base.repo?.id) {
               core.notice('The PR head changed before the card could be written.');
               return;
+            }
+            if (existing?.body.includes('/commit/' + PR_HEAD + ')')) {
+              const fresh = body.indexOf(archiveMarker);
+              const current = existing.body.indexOf(archiveMarker);
+              if (fresh >= 0 && current >= 0) body = body.slice(0, fresh) + existing.body.slice(current);
             }
             if (existing?.body === body) return;
             if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });

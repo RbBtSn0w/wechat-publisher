@@ -85,8 +85,20 @@ test('registry read-back avoids re-publishing known or ambiguous versions', asyn
   await assert.rejects(observe({ ...common, lookup: () => 'conflict' }), /integrity differs/);
   await assert.rejects(observe({ ...common, lookup: () => { throw new Error('unavailable'); } }), /unavailable/);
   assert.deepEqual(calls, []);
-  const observations = [null, null, integrity];
-  assert.deepEqual(await observe({ ...common, lookup: () => observations.shift() }), { available: true, next: true });
+  const retry = Object.assign(new Error('unavailable'), { code: 'E503' });
+  let callsToRead = 0;
+  const observations = [null, retry, integrity];
+  assert.deepEqual(await observe({ ...common, lookup: () => {
+    callsToRead += 1;
+    const value = observations.shift();
+    if (value instanceof Error) throw value;
+    return value;
+  }, next: () => [version] }), { available: true, next: true });
+  assert.equal(callsToRead, 3);
+  assert.deepEqual(await observe({ ...common, write: undefined, lookup: () => null }),
+    { available: false, next: false });
+  assert.deepEqual(await observe({ ...common, lookup: () => integrity, next: () => [version, 'other'] }),
+    { available: true, next: false });
   assert.deepEqual(calls, ['write']);
 });
 
@@ -95,6 +107,7 @@ test('cards present exact commands and per-registry state', t => {
   const receipt = pack({ name, version }, { baseline: null });
   const none = card(receipt, '123', repo);
   assert.match(none, /could not be verified/);
+  assert.match(none, /shasum -a 256 -c - &&\s+npm (?:install|exec)/);
   assert.match(none, /\/actions\/artifacts\/123\/zip/);
   assert(none.includes(receipt.sha256) && none.includes(head));
   assert.match(none, /pr-preview\.tgz/);
@@ -132,7 +145,7 @@ test('resolve the successful packaging attempt on comment reruns and reject unav
     const source = job.steps.find(step => step.id === 'source');
     const pr = { number: 89, state: 'open', head: { sha: head, repo: { id: 2 } }, base: { ref: 'main', repo: { id: 2 } } };
     const run = {
-      path: '.github/workflows/ci.yml', id: 7, event: 'pull_request', run_attempt: 2,
+      path: '.github/workflows/ci.yml@refs/pull/89/merge', id: 7, event: 'pull_request', run_attempt: 2,
       repository: { id: 2 }, head_repository: { id: 2 }, head_sha: head,
       conclusion: 'success', pull_requests: [{ number: 89, head: { sha: head } }],
     };
@@ -155,7 +168,7 @@ test('resolve the successful packaging attempt on comment reruns and reject unav
         pulls: { get: async () => ({ data: pr }) },
       },
       paginate: (fn, args) => fn(args),
-    }, { repo: { owner: 'RbBtSn0w', repo }, payload: { pull_request: pr } }, {
+    }, { repo: { owner: 'RbBtSn0w', repo }, payload: { pull_request: { number: 89, head: { sha: head } } } }, {
       notice() {}, setOutput: (key, value) => { outputs[key] = value; },
     }, { SOURCE_RUN_ID: '7' });
     await exec();
@@ -167,11 +180,10 @@ test('resolve the successful packaging attempt on comment reruns and reject unav
       artifacts = value;
       await assert.rejects(exec(), /unexpired/);
     }
-    const eventHead = pr.head.sha;
+    for (const key of Object.keys(outputs)) delete outputs[key];
     pr.head = { ...pr.head, sha: 'b'.repeat(40) };
-    if (job === commentJob) await assert.rejects(exec(), /differs from event/);
-    else await exec();
-    pr.head.sha = eventHead;
+    await exec();
+    assert.deepEqual(outputs, {});
     assert.equal(job.steps.find(step => step.with?.['artifact-ids']).with['merge-multiple'], true);
   }
   assert.match(commentJob.if, /head\.repo\.full_name == github\.repository/);
@@ -189,6 +201,7 @@ test('comment writer is idempotent, preserves published cards and rereads head',
   writeFileSync(join(dir, 'comment-preview/card.md'), card(receipt, '99999999999999', repo));
   const step = commentJob.steps.at(-1);
   let existing = null;
+  let selectedArtifact = '123';
   let currentHead = head;
   const mutations = [];
   const marker = '<!-- pr-installable-preview -->';
@@ -208,7 +221,7 @@ test('comment writer is idempotent, preserves published cards and rereads head',
     },
     paginate: (fn, args) => fn(args),
   }, { repo: { owner: 'RbBtSn0w', repo } }, { notice() {} }, {
-    RUNNER_TEMP: dir, PR_NUMBER: '89', PR_HEAD: head, ARTIFACT_ID: '123',
+    RUNNER_TEMP: dir, PR_NUMBER: '89', PR_HEAD: head, ARTIFACT_ID: selectedArtifact,
     PACKAGING_ATTEMPT: '1', SOURCE_RUN_ID: '7',
   });
   currentHead = 'c'.repeat(40);
@@ -225,4 +238,19 @@ test('comment writer is idempotent, preserves published cards and rereads head',
   existing.body = marker + '\n<!-- verified-registry-preview:' + head + ' -->\nregistry evidence';
   await exec();
   assert.deepEqual(mutations, ['create', 'update']);
+  const registrySection = marker + '\n<!-- verified-registry-preview:' + head + ' -->\n' +
+    'Registry evidence for digest ' + receipt.sha256 + '\n';
+  existing.body = registrySection + card(receipt, '123', repo);
+  const refreshed = pack({ name, version, description: 'Republished archive fixture' });
+  for (const file of ['receipt.json', 'pr-preview.tgz']) {
+    writeFileSync(join(dir, 'comment-preview', file), readFileSync(join(dir, file)));
+  }
+  writeFileSync(join(dir, 'comment-preview/card.md'), card(refreshed, '99999999999999', repo));
+  selectedArtifact = '124';
+  await exec();
+  assert.deepEqual(mutations, ['create', 'update', 'update']);
+  assert(existing.body.startsWith(registrySection));
+  assert.match(existing.body, /artifacts\/124/);
+  assert(existing.body.includes(refreshed.sha256));
+
 });

@@ -132,6 +132,7 @@ jobs:
     timeout-minutes: 5
     concurrency:
       group: pr-preview-card-${{ github.event.pull_request.number }}
+      queue: max
     permissions:
       actions: read
       pull-requests: write
@@ -149,7 +150,7 @@ jobs:
               throw new Error('Invalid source run ID');
             }
             const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id });
-            if (run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
+            if (run.path?.split('@', 1)[0] !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
                 !Number.isSafeInteger(run.repository?.id) || run.repository.id !== run.head_repository?.id ||
                 !/^[0-9a-f]{40}$/.test(run.head_sha)) {
               throw new Error('Expected a same-repository PR CI run');
@@ -230,8 +231,11 @@ jobs:
             if (createHash('sha256').update(bytes).digest('hex') !== receipt.sha256) {
               throw new Error('Downloaded PR package checksum does not match');
             }
-            const panel = fs.readFileSync(path.join(directory, 'card.md'), 'utf8');
-            const body = marker + '\n' + panel.replaceAll('99999999999999', ARTIFACT_ID);
+            const archiveMarker = '<!-- pr-preview-artifact -->';
+            const panel = fs.readFileSync(path.join(directory, 'card.md'), 'utf8')
+              .replaceAll('99999999999999', ARTIFACT_ID);
+            if (!panel.startsWith(archiveMarker + '\n')) throw new Error('Preview archive panel is missing');
+            let body = marker + '\n' + panel;
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number, per_page: 100,
             });
@@ -243,7 +247,11 @@ jobs:
               core.notice('The PR head changed before the card could be written.');
               return;
             }
-            if (existing?.body.includes(publishedMarker)) return;
+            if (existing?.body.includes(publishedMarker)) {
+              const boundary = existing.body.indexOf('\n' + archiveMarker);
+              if (boundary < 0) return;
+              body = existing.body.slice(0, boundary) + '\n' + panel;
+            }
             if (existing?.body === body) return;
             if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
             else await github.rest.issues.createComment({ owner, repo, issue_number, body });
