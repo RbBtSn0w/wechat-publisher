@@ -96,19 +96,61 @@ Feature/Fix branch -> reviewed squash PR -> main
 
 ### 1. 安装
 
-#### 方式一：从 npm 安装（推荐）
+#### 在 Mac 上安装 CLI 并预览第一篇稿
+
+如果正在和 Codex 写稿，可以在当前对话说「帮我检查排版工具，装好后继续排刚才那篇」。先检查本机环境：
+
 ```bash
-npm install -g @rbbtsn0w/wechat-publisher
+wechat-pub export --help
 ```
 
-安装完成后，即可在终端中直接使用 `wechat-pub` 命令。
+如果 `--output` 的说明包含 `standalone HTML preview`，可以直接排版。旧版也提供 `--output`，但在 Safari 直接打开导出的中文稿时可能出现乱码。如果帮助里没有这段说明，请升级到包含 UTF-8 预览修复的版本，再运行一次帮助命令确认。修复发布前，可以使用下方的 PR 预览包。
 
-> **临时使用（免安装）**：也可通过 `npx` 直接运行，无需全局安装：
-> ```bash
-> npx @rbbtsn0w/wechat-publisher sync _posts/my-post.md
-> ```
+若终端提示找不到 `wechat-pub`，检查 Node.js 和 npm。
 
-#### 方式二：从源码安装（适合开发者）
+```bash
+node --version
+npm --version
+```
+
+CLI 需要 Node.js 22.14.0 或更高版本。若命令不存在或 Node.js 版本过低，从 [Node.js 官网](https://nodejs.org/en/download) 下载 macOS 的 LTS 安装包。用 Mac 的标准账户操作时，安装向导会在点击「安装」后要求管理员的用户名和密码。安装完成后打开一个新的终端窗口，再检查以上两个版本。环境满足要求后，运行以下命令安装 CLI。安装后同样检查 `--output` 的说明，确认当前版本支持独立预览。
+
+```bash
+npm install -g @rbbtsn0w/wechat-publisher
+wechat-pub export --help
+```
+
+**如果全局安装报 `EACCES`**，当前账户无法写入 npm 的全局安装目录（例如 `/usr/local/lib/node_modules`）。可以用 npm 自带的 `npx` 继续导出，无需 `sudo` 或修改系统目录权限。先确认 npm 上的稳定版包含 UTF-8 预览修复。
+
+```bash
+npx @rbbtsn0w/wechat-publisher@latest export --help
+```
+
+如果 `--output` 的说明包含 `standalone HTML preview`，就用这个版本继续。首次运行时，如果终端询问是否下载该包，输入 `y` 并按回车。
+
+- **在 Codex 里继续。** 回到原对话，回复「全局安装报 EACCES，用 npx 继续排刚才那篇，只生成本地预览」。如果 CLI 已经装好，回复「继续排刚才那篇，只生成本地预览」。Agent 应在同一对话中用已确认支持独立预览的版本从之前保存的 Markdown 路径导出 HTML，再返回可以重新打开的本地文件链接。你可以继续使用原稿，无需重新粘贴正文，也无需微信 AppID 或 AppSecret。
+- **在终端里继续。** 在原稿所在目录运行下方对应的命令，把 `article.md` 换成实际文件名。
+
+```bash
+# 确认 npm 稳定版支持独立预览后，在原稿所在目录运行
+npx @rbbtsn0w/wechat-publisher@latest export "article.md" --output "article-preview.html"
+open "article-preview.html"
+```
+
+```bash
+# 已经可以运行 wechat-pub 时，在原稿所在目录运行
+wechat-pub export "article.md" --output "article-preview.html"
+open "article-preview.html"
+```
+
+如果 npm 稳定版尚未包含修复，按 [PR 预览包说明](docs/release-train.md#pr-preview-artifacts) 下载并校验包含修复的 `.tgz`。把下方的包路径换成下载文件的绝对路径，在原稿所在目录运行同一条导出流程。
+
+```bash
+npx --package="/absolute/path/to/wechat-publisher-preview.tgz" -- wechat-pub export "article.md" --output "article-preview.html"
+open "article-preview.html"
+```
+
+#### 从源码安装（适合开发者）
 ```bash
 git clone https://github.com/RbBtSn0w/wechat-publisher.git
 cd wechat-publisher

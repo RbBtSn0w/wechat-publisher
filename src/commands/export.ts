@@ -196,7 +196,20 @@ export async function exportCommand(targetPath: string, options: ExportCommandOp
       if (source.dev === output.dev && source.ino === output.ino) throw new Error('Output must not overwrite the source file.');
     }
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    fs.writeFileSync(outPath, finalHtml, 'utf8');
+    const previewHtml = [
+      '<!doctype html>',
+      '<html>',
+      '<head>',
+      '<meta charset="utf-8">',
+      '<title>WeChat article preview</title>',
+      '</head>',
+      '<body>',
+      finalHtml,
+      '</body>',
+      '</html>',
+      '',
+    ].join('\n');
+    fs.writeFileSync(outPath, previewHtml, 'utf8');
     console.log(`✅ Saved formatted HTML to: ${outPath}`);
   }
 
