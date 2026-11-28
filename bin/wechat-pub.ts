@@ -122,7 +122,7 @@ program
   .command('export <target>')
   .description('Export Markdown or draft directory to inlined WeChat HTML or copy directly to clipboard')
   .option('-c, --clip', 'Copy rich-text HTML into system clipboard (macOS)')
-  .option('-o, --output <path>', 'Output file path for the inlined HTML')
+  .option('-o, --output <path>', 'Output file path for the standalone HTML preview')
   .option('--theme <theme>', 'Rendering theme', 'wechat-publisher-legacy')
   .option('--strict', 'Fail export if any preflight warnings or errors occur')
   .option('--no-footnotes', 'Do not append references section at the end of the post')

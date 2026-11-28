@@ -96,17 +96,44 @@ Feature/Fix branch -> reviewed squash PR -> main
 
 ### 1. 安装
 
-#### 方式一：从 npm 安装（推荐）
+#### 在 Mac 上安装 CLI 并预览第一篇稿
+
+如果正在和 Codex 写稿，可以在当前对话说「帮我检查排版工具，装好后继续排刚才那篇」。先检查本机环境：
+
 ```bash
-npm install -g @rbbtsn0w/wechat-publisher
+wechat-pub export --help
 ```
 
-安装完成后，即可在终端中直接使用 `wechat-pub` 命令。
+如果看到了 `export` 的用法和 `--output` 选项，可以直接排版。若终端提示找不到 `wechat-pub`，检查 Node.js 和 npm：
 
-> **临时使用（免安装）**：也可通过 `npx` 直接运行，无需全局安装：
-> ```bash
-> npx @rbbtsn0w/wechat-publisher sync _posts/my-post.md
-> ```
+```bash
+node --version
+npm --version
+```
+
+CLI 需要 Node.js 22.14.0 或更高版本。若命令不存在或 Node.js 版本过低，从 [Node.js 官网](https://nodejs.org/en/download) 下载 macOS 的 LTS 安装包。用 Mac 的标准账户操作时，安装向导会在点击「安装」后要求管理员的用户名和密码。安装完成后打开一个新的终端窗口，再检查以上两个版本。环境满足要求后，运行以下命令安装 CLI。
+
+```bash
+npm install -g @rbbtsn0w/wechat-publisher
+wechat-pub export --help
+```
+
+**如果全局安装报 `EACCES`**，当前账户无法写入 npm 的全局安装目录（例如 `/usr/local/lib/node_modules`）。可以用 npm 自带的 `npx` 继续导出，无需 `sudo` 或修改系统目录权限。
+
+- **在 Codex 里继续。** 回到原对话，回复「全局安装报 EACCES，用 npx 继续排刚才那篇，只生成本地预览」。如果 CLI 已经装好，回复「继续排刚才那篇，只生成本地预览」。Agent 应在同一对话中使用之前保存的 Markdown 路径导出 HTML，再返回可以重新打开的本地文件链接。你可以继续使用原稿，无需重新粘贴正文，也无需微信 AppID 或 AppSecret。
+- **在终端里继续。** 在原稿所在目录运行下方对应的命令，把 `article.md` 换成实际文件名。首次运行 `npx` 时，如果终端询问是否下载 `@rbbtsn0w/wechat-publisher`，输入 `y` 并按回车。
+
+```bash
+# 全局安装报 EACCES 时，在原稿所在目录运行
+npx @rbbtsn0w/wechat-publisher export "article.md" --output "article-preview.html"
+open "article-preview.html"
+```
+
+```bash
+# 已经可以运行 wechat-pub 时，在原稿所在目录运行
+wechat-pub export "article.md" --output "article-preview.html"
+open "article-preview.html"
+```
 
 #### 方式二：从源码安装（适合开发者）
 ```bash

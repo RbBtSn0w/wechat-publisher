@@ -29,10 +29,10 @@ describe('exportCommand', () => {
     let source = tmpDir;
     if (mode === 'markdown') {
       source = path.join(tmpDir, 'post.md');
-      fs.writeFileSync(source, 'Body text stays readable.\n\n```swift\nclass CanvasNodeView: UIView {\n    func refreshBorder() {\n        print("hello world")\n    }\n}\n```');
+      fs.writeFileSync(source, '中文正文显示正常。\n\n```swift\nclass CanvasNodeView: UIView {\n    func refreshBorder() {\n        print("hello world")\n    }\n}\n```');
     } else {
       fs.writeFileSync(path.join(tmpDir, 'draft.json'), JSON.stringify({
-        articles: [{ article_type: 'newspic', title: 'Code', content: '<p>Body text stays readable.</p><pre title="a > b"><code><span>class</span> <span>CanvasNodeView</span><br>    <span>func</span> <span>refreshBorder</span>() {<br><span>print</span>(<span>"hello world"</span>)<br>}</code></pre>' }],
+        articles: [{ article_type: 'newspic', title: 'Code', content: '<p>中文正文显示正常。</p><pre title="a > b"><code><span>class</span> <span>CanvasNodeView</span><br>    <span>func</span> <span>refreshBorder</span>() {<br><span>print</span>(<span>"hello world"</span>)<br>}</code></pre>' }],
       }));
     }
 
@@ -43,9 +43,12 @@ describe('exportCommand', () => {
     expect(html).toMatch(/func<\/span>(?:&nbsp;|\u00a0)<span/);
     expect(html).toContain('hello world');
     expect(html).not.toContain('hello&nbsp;world');
-    expect(html).toContain('Body text stays readable.');
+    expect(html).toMatch(/^<!doctype html>\s*<html>\s*<head>\s*<meta charset="utf-8">/);
+    expect(html).toContain('中文正文显示正常。');
     if (mode === 'draft') expect(html).toContain('title="a > b"');
-    expect(copyRichTextToClipboard).toHaveBeenLastCalledWith(html);
+    const [[clipboardHtml]] = vi.mocked(copyRichTextToClipboard).mock.calls;
+    expect(html).toContain(`<body>\n${clipboardHtml}\n</body>`);
+    expect(clipboardHtml).not.toContain('<meta charset=');
   });
 
   it('extracts code-block link labels before protecting boundary whitespace', async () => {
@@ -59,7 +62,9 @@ describe('exportCommand', () => {
     const html = fs.readFileSync(output, 'utf8');
     expect(html).toContain('link: <span');
     expect(html).not.toContain('&amp;nbsp;');
-    expect(copyRichTextToClipboard).toHaveBeenLastCalledWith(html);
+    const [[clipboardHtml]] = vi.mocked(copyRichTextToClipboard).mock.calls;
+    expect(html).toContain(`<body>\n${clipboardHtml}\n</body>`);
+    expect(clipboardHtml).not.toContain('<meta charset=');
   });
 
   it.each(['[TODO: missing]', '[TBD]'])('rejects a source %s link before file or clipboard output', async placeholder => {
@@ -134,7 +139,9 @@ describe('exportCommand', () => {
     expect(html).toContain(`data:image/png;base64,${fs.readFileSync(image).toString('base64')}`);
     expect(html).not.toContain('src="diagram.png"');
     expect(html).toContain('参考链接');
-    expect(copyRichTextToClipboard).toHaveBeenLastCalledWith(html);
+    const [[clipboardHtml]] = vi.mocked(copyRichTextToClipboard).mock.calls;
+    expect(html).toContain(`<body>\n${clipboardHtml}\n</body>`);
+    expect(clipboardHtml).not.toContain('<meta charset=');
   });
 
   it('inlines SDK-encoded local image paths with spaces', async () => {
